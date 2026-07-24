@@ -61,6 +61,7 @@ fun TutorialContent(
                 is Block.Quote -> Quote(block.text)
                 is Block.UnorderedList -> UnorderedList(block.items)
                 is Block.OrderedList -> OrderedList(block.items)
+                is Block.Table -> Table(block.headers, block.rows)
                 is Block.Divider -> HorizontalDivider(
                     modifier = Modifier.padding(vertical = 8.dp),
                     color = MaterialTheme.colorScheme.outlineVariant,
@@ -80,6 +81,7 @@ private sealed class Block {
     data class Quote(val text: String) : Block()
     data class UnorderedList(val items: List<String>) : Block()
     data class OrderedList(val items: List<String>) : Block()
+    data class Table(val headers: List<String>, val rows: List<List<String>>) : Block()
     data object Divider : Block()
     data object Empty : Block()
 }
@@ -149,6 +151,23 @@ private fun parseBlocks(lines: List<String>): List<Block> {
                     i++
                 }
                 blocks.add(Block.Quote(quoteLines.joinToString(" ")))
+            }
+
+            // Markdown 表格
+            line.trimStart().startsWith("|") && i + 1 < lines.size && lines[i + 1].trim().matches(Regex("^\\|[:\\-\\s|]+\\|$")) -> {
+                val headers = line.trim().split("|").map { it.trim() }.filter { it.isNotEmpty() }
+                i += 2 // 跳过表头和分隔线
+                val rows = mutableListOf<List<String>>()
+                while (i < lines.size && lines[i].trimStart().startsWith("|")) {
+                    val row = lines[i].trim().split("|").map { it.trim() }.filterIndexed { index, _ ->
+                        // 过滤掉首尾可能的空元素（由于 split("|") 在 "| a | b |" 会产生 ["", " a ", " b ", ""]）
+                        val splitLine = lines[i].trim().split("|")
+                        index > 0 && index < splitLine.size - 1
+                    }
+                    if (row.isNotEmpty()) rows.add(row)
+                    i++
+                }
+                blocks.add(Block.Table(headers, rows))
             }
 
             // 普通段落（合并连续非空非特殊行）
@@ -363,6 +382,54 @@ private fun OrderedList(items: List<String>) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.weight(1f),
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun Table(headers: List<String>, rows: List<List<String>>) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+            .padding(1.dp) // 边框粗细
+    ) {
+        // 表头
+        Row(
+            modifier = Modifier
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f))
+                .padding(vertical = 8.dp, horizontal = 4.dp)
+        ) {
+            headers.forEachIndexed { index, header ->
+                Text(
+                    text = renderInline(header),
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp
+                    ),
+                    modifier = Modifier.weight(if (index == 0) 0.8f else 1.2f).padding(horizontal = 4.dp),
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+        }
+
+        // 数据行
+        rows.forEachIndexed { rowIndex, row ->
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            Row(
+                modifier = Modifier
+                    .padding(vertical = 8.dp, horizontal = 4.dp)
+            ) {
+                row.forEachIndexed { index, cell ->
+                    Text(
+                        text = renderInline(cell),
+                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp),
+                        modifier = Modifier.weight(if (index == 0) 0.8f else 1.2f).padding(horizontal = 4.dp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         }
     }

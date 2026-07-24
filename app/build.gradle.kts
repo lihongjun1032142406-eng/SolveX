@@ -13,6 +13,7 @@ android {
 
     namespace = "com.tianhuiu.solvex"
     compileSdk = 36
+    buildToolsVersion = "36.0.0"
 
     signingConfigs {
         create("release") {
@@ -29,8 +30,8 @@ android {
         minSdk = 31
         targetSdk = 36
 
-        versionCode = 13
-        versionName = "0.1.3-alpha"
+        versionCode = 14
+        versionName = "0.1.4-alpha"
 
         testInstrumentationRunner =
             "androidx.test.runner.AndroidJUnitRunner"
@@ -72,8 +73,9 @@ android {
     }
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
+        sourceCompatibility = JavaVersion.VERSION_21
+        targetCompatibility = JavaVersion.VERSION_21
+        isCoreLibraryDesugaringEnabled = true
     }
 
     buildFeatures {
@@ -91,11 +93,13 @@ android {
 
 kotlin {
     compilerOptions {
-        jvmTarget.set(JvmTarget.JVM_17)
+        jvmTarget.set(JvmTarget.JVM_21)
     }
 }
 
 dependencies {
+
+    coreLibraryDesugaring(libs.desugar.jdk.libs)
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
@@ -125,6 +129,10 @@ dependencies {
     implementation(libs.okhttp.sse)
 
     implementation(libs.mlkit.text.recognition.chinese)
+    implementation(libs.jetbrains.markdown)
+    implementation(libs.jlatexmath)
+    implementation(libs.jlatexmath.font.greek)
+    implementation(libs.jlatexmath.font.cyrillic)
 
     implementation(libs.kotlinx.coroutines.play.services)
     implementation(libs.kotlinx.serialization.json)

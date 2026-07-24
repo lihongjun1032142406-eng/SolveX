@@ -8,7 +8,7 @@ data class Section(
 
 // Markdown 解析器
 object MarkdownParser {
-    private val headingRegex = Regex("(?m)^### (.+)$")
+    private val headingRegex = Regex("""###\s+([^#\n\r]+)""")
 
     fun parse(markdown: String): List<Section> {
         val sections = mutableListOf<Section>()
@@ -16,7 +16,7 @@ object MarkdownParser {
 
         if (matches.isEmpty()) {
             val trimmed = markdown.trim()
-            if (trimmed.isNotBlank()) {
+            if (trimmed.isNotEmpty()) {
                 sections.add(Section(title = "", content = trimmed))
             }
             return sections
@@ -25,7 +25,7 @@ object MarkdownParser {
         // 处理第一个标题前的内容
         val firstMatch = matches.first()
         val beforeFirst = markdown.substring(0, firstMatch.range.first).trim()
-        if (beforeFirst.isNotBlank()) {
+        if (beforeFirst.isNotEmpty()) {
             sections.add(Section(title = "", content = beforeFirst))
         }
 
@@ -35,9 +35,7 @@ object MarkdownParser {
             val end = if (i + 1 < matches.size) matches[i + 1].range.first else markdown.length
             val content = markdown.substring(start, end).trim()
 
-            if (content.isNotBlank()) {
-                sections.add(Section(title = title, content = content))
-            }
+            sections.add(Section(title = title, content = content))
         }
 
         return sections

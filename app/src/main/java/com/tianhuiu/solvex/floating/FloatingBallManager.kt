@@ -21,6 +21,7 @@ import androidx.lifecycle.setViewTreeLifecycleOwner
 import androidx.lifecycle.setViewTreeViewModelStoreOwner
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
+import com.tianhuiu.solvex.data.models.FloatingBallAppearance
 import kotlin.math.abs
 
 class FloatingBallManager(private val context: Context) {
@@ -72,7 +73,7 @@ class FloatingBallManager(private val context: Context) {
                 resetHideTimer()
             }
         }
-    var ballFullSizeDp by mutableStateOf(40f)
+    var appearance by mutableStateOf(FloatingBallAppearance())
     var status by mutableStateOf(BallStatus.IDLE)
     private var displayMode by mutableStateOf(BallDisplayMode.FULL)
     private var isAtLeftEdge by mutableStateOf(value = true)
@@ -85,11 +86,13 @@ class FloatingBallManager(private val context: Context) {
     private val hideRunnable = Runnable {
         displayMode = BallDisplayMode.HIDDEN_STRIP
         snapToEdge()
+        onBallAutoHidden?.invoke()
     }
 
     var onSingleClick: (() -> Unit)? = null
-    var onDoubleClick: (() -> Unit)? = null
+    var onDoubleClick: ((x: Int, y: Int) -> Unit)? = null
     var onLongClick: (() -> Unit)? = null
+    var onBallAutoHidden: (() -> Unit)? = null
 
     fun show() {
         val existing = composeView
@@ -112,12 +115,12 @@ class FloatingBallManager(private val context: Context) {
                     displayMode = displayMode,
                     isAtLeftEdge = isAtLeftEdge,
                     ballText = ballText,
-                    ballFullSizeDp = ballFullSizeDp,
+                    appearance = appearance,
                     isStealthMode = defaultIdleStatus == BallStatus.LOW_PROFILE
                 )
             }
 
-            setOnTouchListener(FloatingTouchListener())
+            setOnTouchListener(FloatingBallTouchListener())
         }
 
         windowManager.addView(composeView, layoutParams)
@@ -226,7 +229,7 @@ class FloatingBallManager(private val context: Context) {
     private fun getCurrentBallWidthPx(): Int {
         val density = context.resources.displayMetrics.density
         val dpValue =
-            if (displayMode == BallDisplayMode.FULL) ballFullSizeDp else (ballFullSizeDp * BALL_HIDDEN_RATIO)
+            if (displayMode == BallDisplayMode.FULL) appearance.diameterDp else (appearance.diameterDp * BALL_HIDDEN_RATIO)
         return (dpValue * density).toInt()
     }
 
@@ -243,7 +246,7 @@ class FloatingBallManager(private val context: Context) {
         windowManager.updateViewLayout(view, layoutParams)
     }
 
-    private inner class FloatingTouchListener : View.OnTouchListener {
+    private inner class FloatingBallTouchListener : View.OnTouchListener {
         private var initialX = 0
         private var initialY = 0
         private var initialTouchX = 0f
@@ -261,14 +264,23 @@ class FloatingBallManager(private val context: Context) {
                         resetHideTimer()
                         return true
                     }
+                    // 运行中或闲置中都触发各自的单击逻辑
                     onSingleClick?.invoke()
                     resetHideTimer()
                     return true
                 }
 
                 override fun onDoubleTap(e: MotionEvent): Boolean {
+                    if (displayMode == BallDisplayMode.HIDDEN_STRIP) {
+                        displayMode = BallDisplayMode.FULL
+                        snapToEdge()
+                        resetHideTimer()
+                        return true
+                    }
                     if (displayMode == BallDisplayMode.FULL) {
-                        onDoubleClick?.invoke()
+                        val centerX = layoutParams.x + getCurrentBallWidthPx() / 2
+                        val centerY = layoutParams.y + layoutParams.height / 2
+                        onDoubleClick?.invoke(centerX, centerY)
                         resetHideTimer()
                     }
                     return true
@@ -279,12 +291,12 @@ class FloatingBallManager(private val context: Context) {
                         displayMode = BallDisplayMode.FULL
                         snapToEdge()
                         resetHideTimer()
-                        return
-                    }
-                    if (displayMode == BallDisplayMode.FULL && status == BallStatus.IDLE) {
+                    } else if (status != BallStatus.RUNNING) {
+                        // 闲置状态长按：原逻辑是切换引擎，此处保留或改为用户要求的逻辑
                         onLongClick?.invoke()
                         resetHideTimer()
                     }
+                    // 运行时长按不做特殊逻辑，交由 ACTION_MOVE 处理拖动
                 }
             })
 
@@ -305,7 +317,16 @@ class FloatingBallManager(private val context: Context) {
                 MotionEvent.ACTION_MOVE -> {
                     val dx = event.rawX - initialTouchX
                     val dy = event.rawY - initialTouchY
+                    
+                    // 判断是否满足拖动阈值
                     if (abs(dx) > 10 || abs(dy) > 10) {
+                        // 运行状态长按拖动逻辑：如果正在运行，必须是长按触发（简单处理：只要移动就算拖动，符合安卓悬浮球习惯）
+                        // 隐藏状态任意触摸都恢复并允许拖动
+                        if (displayMode == BallDisplayMode.HIDDEN_STRIP) {
+                            displayMode = BallDisplayMode.FULL
+                            snapToEdge()
+                        }
+                        
                         isMoving = true
                         layoutParams.x = initialX + dx.toInt()
                         layoutParams.y = initialY + dy.toInt()

@@ -31,12 +31,14 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.tianhuiu.solvex.data.models.FloatingBallAppearance
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 
@@ -51,9 +53,10 @@ fun FloatingBallView(
     displayMode: BallDisplayMode,
     isAtLeftEdge: Boolean,
     ballText: String? = null,
-    ballFullSizeDp: Float = 40f,
+    appearance: FloatingBallAppearance = FloatingBallAppearance(),
     isStealthMode: Boolean = false,
 ) {
+    val ballFullSizeDp = appearance.diameterDp
     // 可配置尺寸
     val baseSize =
         if (displayMode == BallDisplayMode.FULL) ballFullSizeDp.dp else (ballFullSizeDp * 0.6f).dp
@@ -96,7 +99,7 @@ fun FloatingBallView(
         BallStatus.PROTECTED -> Color(0xFFFFA726)
     }
 
-    val finalAlpha = if (isStealthMode) {
+    val finalAlpha = (if (isStealthMode) {
         // 隐匿模式下的透明度策略：整体大幅降低可见度
         when (status) {
             BallStatus.PROTECTED -> if (displayMode == BallDisplayMode.FULL) 0.45f else 0.15f
@@ -116,7 +119,9 @@ fun FloatingBallView(
             BallStatus.RUNNING -> if (displayMode == BallDisplayMode.FULL) 1.0f else 0.55f
             BallStatus.IDLE -> if (displayMode == BallDisplayMode.FULL) 1f else 0.4f
         }
-    }
+    }) * appearance.overallOpacity
+
+    val contentAlpha = appearance.contentOpacity
 
     Box(
         modifier = Modifier
@@ -137,99 +142,104 @@ fun FloatingBallView(
         contentAlignment = Alignment.Center
     ) {
         if (displayMode == BallDisplayMode.FULL) {
-            when (status) {
-                BallStatus.IDLE, BallStatus.LOW_PROFILE -> {
-                    Icon(
-                        imageVector = Icons.Filled.SmartToy,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                }
-
-                BallStatus.PROTECTED -> {
-                    Icon(
-                        imageVector = Icons.Default.Shield,
-                        contentDescription = "已开启隐匿保护",
-                        tint = Color.White,
-                        modifier = Modifier.fillMaxSize().padding(2.dp)
-                    )
-                }
-
-                BallStatus.RUNNING -> {
-                    Icon(
-                        imageVector = Icons.Default.Refresh,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .rotate(rotation)
-                    )
-                }
-
-                BallStatus.SUCCESS -> {
-                    if (!ballText.isNullOrBlank()) {
-                        val scrollState = rememberScrollState()
-
-                        // 自动滚动逻辑：针对长文本开启循环滚动
-                        if (ballText.length > 2) {
-                            LaunchedEffect(ballText, displayMode) {
-                                if (displayMode != BallDisplayMode.FULL) return@LaunchedEffect
-                                while (isActive) {
-                                    delay(1500)
-                                    scrollState.animateScrollTo(
-                                        scrollState.maxValue,
-                                        animationSpec = tween(
-                                            durationMillis = (ballText.length * 400).coerceIn(
-                                                2000,
-                                                8000
-                                            ),
-                                            easing = LinearEasing
-                                        )
-                                    )
-                                    delay(1000)
-                                    scrollState.scrollTo(0)
-                                }
-                            }
-                        }
-
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(horizontal = 2.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = ballText,
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = when {
-                                    ballText.length <= 1 -> 16.sp
-                                    ballText.length == 2 -> 14.sp
-                                    ballText.length == 3 -> 12.sp
-                                    else -> 10.sp
-                                },
-                                maxLines = 1,
-                                modifier = Modifier.horizontalScroll(scrollState)
-                            )
-                        }
-                    } else {
+            Box(modifier = Modifier.alpha(contentAlpha)) {
+                when (status) {
+                    BallStatus.IDLE, BallStatus.LOW_PROFILE -> {
                         Icon(
-                            imageVector = Icons.Default.Check,
+                            imageVector = Icons.Filled.SmartToy,
                             contentDescription = null,
                             tint = Color.White,
                             modifier = Modifier.fillMaxSize()
                         )
                     }
-                }
 
-                BallStatus.ERROR -> {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.fillMaxSize()
-                    )
+                    BallStatus.PROTECTED -> {
+                        Icon(
+                            imageVector = Icons.Default.Shield,
+                            contentDescription = "已开启隐匿保护",
+                            tint = Color.White,
+                            modifier = Modifier.fillMaxSize().padding(2.dp)
+                        )
+                    }
+
+                    BallStatus.RUNNING -> {
+                        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                            androidx.compose.material3.CircularProgressIndicator(
+                                modifier = Modifier.size(appearance.spinnerDiameterDp.dp),
+                                color = Color.White,
+                                strokeWidth = 3.dp,
+                                trackColor = Color.Transparent
+                            )
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier
+                                    .size((appearance.diameterDp * 0.5f).dp)
+                                    .rotate(rotation)
+                            )
+                        }
+                    }
+
+                    BallStatus.SUCCESS -> {
+                        if (!ballText.isNullOrBlank()) {
+                            val scrollState = rememberScrollState()
+
+                            // 自动滚动逻辑：针对长文本开启循环滚动
+                            if (ballText.length > 2) {
+                                LaunchedEffect(ballText, displayMode) {
+                                    if (displayMode != BallDisplayMode.FULL) return@LaunchedEffect
+                                    while (isActive) {
+                                        delay(1500)
+                                        scrollState.animateScrollTo(
+                                            scrollState.maxValue,
+                                            animationSpec = tween(
+                                                durationMillis = (ballText.length * 400).coerceIn(
+                                                    2000,
+                                                    8000
+                                                ),
+                                                easing = LinearEasing
+                                            )
+                                        )
+                                        delay(1000)
+                                        scrollState.scrollTo(0)
+                                    }
+                                }
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(horizontal = 2.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = ballText,
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = appearance.textSizeSp.sp,
+                                    maxLines = 1,
+                                    modifier = Modifier.horizontalScroll(scrollState)
+                                )
+                            }
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Check,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                    }
+
+                    BallStatus.ERROR -> {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
                 }
             }
         }

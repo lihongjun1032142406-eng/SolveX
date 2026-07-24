@@ -4,10 +4,12 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.TypeConverters
 import com.tianhuiu.solvex.data.dao.HistoryDao
 import com.tianhuiu.solvex.data.models.HistoryItem
 
-@Database(entities = [HistoryItem::class], version = 1, exportSchema = false)
+@Database(entities = [HistoryItem::class], version = 2, exportSchema = false)
+@TypeConverters(Converters::class)
 abstract class SolveXDatabase : RoomDatabase() {
     abstract fun historyDao(): HistoryDao
 
@@ -21,7 +23,8 @@ abstract class SolveXDatabase : RoomDatabase() {
                     context.applicationContext,
                     SolveXDatabase::class.java,
                     "solvex_database"
-                ).build()
+                ).fallbackToDestructiveMigration(false)
+                .build()
                 INSTANCE = instance
                 instance
             }

@@ -1,207 +1,177 @@
 # SolveX — 智能屏幕解析助手
 
 [![License](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.1.3--alpha-orange)](version.json)
+[![Version](https://img.shields.io/badge/version-0.1.4--alpha-orange)](version.json)
 
 SolveX 是一款基于 Android 平台的 AI 屏幕解析工具。通过悬浮球交互、多引擎截屏、大语言模型流式响应，为用户提供即时的题目解答、内容分析和知识辅助。
 
-## 🔥 核心功能
+---
 
-### 悬浮交互系统
+## 一、核心功能
 
-- **全局悬浮球**：支持自由拖拽，通过单击触发解析、双击取消任务、长按切换 OCR/视觉引擎。
-- **智能助手抽屉**：沉浸式底栏选择器，支持无限数量助手展示与快捷切换，适配单手操作。
-- **配置看板**：首页整合助手与引擎选择，核心配置一目了然。
-- **自适应隐藏**：截图前自动隐藏悬浮球，避免干扰识别，任务完成后自动恢复。
+1. **全局悬浮球**
+    - 支持自由拖拽吸附，松手自动吸附屏幕边缘
+    - 单击触发解析，双击取消任务或弹出扇形菜单
+    - 长按切换引擎，闲置 5 秒自动收缩为窄条
 
-### 隐私与隐匿保护
+2. **扇形快捷菜单**
+    - 双击悬浮球唤起，弹性动画展开
+    - 支持引擎切换、联网搜索开关、跳转设置、打开百度
+    - 菜单项可在悬浮球外观设置中自定义
 
-- **防截屏录屏 (FLAG_SECURE)**：开启后 SolveX 自身的悬浮窗在录制中显示为黑色，保护隐私。
-- **隐匿模式**：支持从最近任务列表中隐藏，并能通过 Shizuku 实时感知环境（如进入考试 App 时自动增强保护）。
+3. **智能结果抽屉**
+    - 侧边栏流式输出 AI 回答，逐字显示无需等待
+    - 支持 Markdown 和 LaTeX 公式原生渲染
 
-### 智能截屏引擎
+4. **三引擎截屏**
+    - **系统录屏**（MediaProjection）：兼容性最佳
+    - **Shizuku ADB**：静默截图，无需每次弹窗授权
+    - **无障碍取字**：直接读取屏幕文字节点，无需产生截图文件
 
-- **系统录屏**：标准的 Android 录屏接口，兼容性好。
-- **无障碍截图**：基于无障碍服务实现，授予权限后可实现静默、连续截图。
-- **Shizuku ADB**：通过 Shizuku 获得 ADB 权限，提供最高效的底层截图能力。
-- **屏幕取字**：通过无障碍服务直接提取文字，无需产生截图文件，隐私更安全。
+5. **选区裁剪系统**
+    - 无障碍实时扫描模式：背景透明，直接扫描文字节点
+    - 静态图片裁剪模式：在截图上手动框选裁剪区域
 
-### OCR 与 AI 调度
+6. **多 LLM 提供商**
+    - 内置 OpenAI、Anthropic、Google Gemini 适配器
+    - 兼容 OpenAI 协议的所有第三方服务
 
-- **多语种识别**：集成 Google ML Kit，支持中英文及复杂排版的高精度文字提取。
-- **长按拖拽排序**：助手及模型提供商支持长按排序，自由定制优先级。
-- **统一适配器**：内置 OpenAI、Anthropic、Google Gemini 适配器，完美兼容符合 OpenAI 接口协议的所有提供商。
+7. **联网搜索**
+    - 支持 Tavily 和 Serper.dev 搜索引擎
+    - AI 在 Agent 循环中自动调用搜索，无需手动操作
 
-### 工作模式与历史
+8. **Agent 工具调用**
+    - 多轮工具循环（最多 4 轮）
+    - AI 可自动联网搜索、复制到剪贴板、悬浮球显示气泡文字
 
-- **常规模式**：支持手动框选目标区域，适合需要精细解题的过程展示。
-- **自动模式**：全屏快速识别，自动提取答案摘要并复制到剪贴板。
-- **持久化历史**：基于 Room 数据库存储所有记录，支持关键词搜索、详情回看和图片预览。
+9. **隐私保护**
+    - **FLAG_SECURE 防截屏**：覆盖悬浮球、抽屉、选区三层
+    - **隐匿模式**：通过 Shizuku 实时监测环境（每 1.5 秒轮询），自动加强保护
 
-## 📖 使用教程
+---
 
-### 1. 初次配置
+## 二、使用方式
 
-1. **添加 AI 提供方**：进入「设置 → 模型供应商」，点击添加按钮，填写 API 地址和密钥。
-2. **获取模型列表**：在提供方编辑页面点击「获取模型列表」，自动拉取可用模型并智能推荐默认模型。
-3. **管理助手**：进入「设置 → 助手管理」，创建、编辑或通过长按拖动调整助手优先级。
-4. **选择助手**：在首页配置看板点击助手名称，在底部抽屉中选择合适的助手。
+1. **添加 AI 模型**：进入「设置 → 模型提供商」添加 API 接口
+2. **配置助手**（可选）：进入「设置 → 智能助手」创建带独立提示词的 AI 角色
+3. **授权权限**：首页点击「启用解析」，按引导卡片完成权限授予
+4. **选择截屏模式**：进入「设置 → 通用设置」切换截屏方式
+5. **启动服务**：首页点击「启用解析」按钮，长按可快速启动
+6. **开始解析**：任意界面单击悬浮球即可触发 AI 分析
 
-### 2. 权限设置
+---
 
-进入「设置 → 权限设置」，根据截屏模式授予相应权限：
+## 三、悬浮球使用
 
-| 截屏模式        | 所需权限          | 说明              |
-|:------------|:--------------|:----------------|
-| 系统屏幕录制      | 悬浮窗           | 每次启动需手动授权录屏     |
-| 无障碍截图       | 悬浮窗 + 无障碍服务   | 需要保持授权，后续静默截图   |
-| Shizuku ADB | 悬浮窗 + Shizuku | 需安装 Shizuku 并授权 |
+### 手势操作
 
-> 建议同时授予**通知权限**和关闭**电池优化**，以确保后台服务稳定运行。
+| 手势     | 空闲时         | 解析进行中     |
+|:-------|:------------|:----------|
+| **单击** | 开始解析        | 展开/收起结果抽屉 |
+| **双击** | 弹出扇形菜单      | 取消解析      |
+| **长按** | 切换引擎        | 无效果       |
+| **拖拽** | 移动位置，松手吸附边缘 | 移动位置      |
 
-### 3. 启动服务
+### 扇形快捷菜单
 
-- **单击首页启动按钮**：以「常规模式」启动，可手动裁剪截图区域，展示完整解题过程。
-- **长按首页启动按钮**：以「自动模式」启动，自动识别并快速返回答案。
+双击悬浮球唤起，含以下四项：
 
-### 4. 两种工作模式
+- **引擎切换**（⚙️） — 切换文本引擎/视觉引擎，当前引擎高亮显示
+- **联网搜索开关**（☁️） — 一键开关联网搜索，开启时高亮显示
+- **跳转设置**（⚡） — 快速进入设置页面
+- **打开百度**（🌐） — 用浏览器打开百度搜索
 
-**常规模式**（适合学习场景）：
+> 菜单项可在「设置 → 悬浮球外观」中自定义勾选显示。
 
-- 截图后可手动裁剪关注区域
-- 侧边抽屉实时展示解题思路、知识点和最终答案
-- 解析结果自动保存到历史记录
+---
 
-**自动模式**（适合快速查询）：
+## 四、项目结构
 
-- 自动截屏并识别，无需手动裁剪
-- 悬浮球直接显示答案摘要
-- 选择题答案自动复制到剪贴板
+### 模块目录
 
-### 5. 通用配置
-
-进入「设置 → 通用设置」可调整：
-
-- **屏幕录制方式**：切换截屏引擎
-- **抽屉弹出位置**：左侧或右侧
-- **跟随内容输出滚动**：开启后抽屉和历史记录自动滚动到最新内容
-- **隐藏悬浮球**：无操作时悬浮球自动缩回屏幕边缘
-
-### 6. 历史记录
-
-- 底部导航切换到「历史」标签查看所有解析记录
-- 支持关键词搜索、长按删除单条记录
-- 点击记录查看完整解析详情，包括截图、解题过程和最终答案
-
-### 7. 更新与反馈
-
-- **检查更新**：进入「设置 → 关于我们 → 版本信息」手动检查，或等待自动检测（7-14 天周期）
-- **问题反馈**：进入「设置 → 关于我们 → 问题反馈」选择 GitHub 或 Gitee Issues 提交
-- **开源地址**：进入「设置 → 关于我们 → 开源地址」选择 GitHub 或 Gitee 查看源码
-
-## 📦 版本管理
-
-版本号遵循项目根目录下的 `version.json`：
-
-```json
-{
-  "versionCode": 1,
-  "versionName": "0.0.1-alpha",
-  "releaseDate": "2026-06-10",
-  "level": "recommended",
-  "apkSize": "16 MB",
-  "updateLog": [
-    "更新日志条目...",
-    "更新日志条目..."
-  ],
-  "githubUrl": "https://github.com/xingtianiy/SolveX/releases/download/v0.0.1-alpha/app-release.apk",
-  "giteeUrl": "https://gitee.com/xingtianiy/SolveX/releases/download/v0.0.1-alpha/app-release.apk"
-}
 ```
-
-| 字段            | 类型       | 说明                                                        |
-|:--------------|:---------|:----------------------------------------------------------|
-| `versionCode` | Int      | 递增的整数版本号，用于比较新旧版本                                         |
-| `versionName` | String   | 用户可见的语义版本号，如 `0.0.1-alpha`                                |
-| `releaseDate` | String   | 发布日期，格式 `YYYY-MM-DD`                                      |
-| `level`       | String   | 更新级别：`critical`（重要，不可关闭）、`recommended`（推荐）、`optional`（可选） |
-| `apkSize`     | String   | APK 文件大小，如 `"16 MB"`                                      |
-| `updateLog`   | String[] | 更新日志列表，每条单独一行显示                                           |
-| `githubUrl`   | String   | GitHub Release 直链下载地址                                     |
-| `giteeUrl`    | String   | Gitee Release 直链下载地址                                      |
-
-更新检测通过竞速请求 3 个源（Gitee、GitHub、JsDelivr），采用基于 ETag 的条件请求，检查间隔为 1~14 天自适应调整。
-
-## 📂 项目结构
-
-```text
 app/src/main/java/com/tianhuiu/solvex/
-├── capture/             # 截屏引擎实现 (System / Shizuku / Accessibility)
-├── floating/            # 悬浮交互层 (悬浮球、实时抽屉、屏幕裁剪系统)
-├── mode/                # 业务模式层 (常规解析与自动全屏模式逻辑)
-├── network/             # 网络与 AI 层 (LLM 适配器、SSE 客户端、流水线)
-├── service/             # 后台服务 (MainService、Shizuku 辅助、无障碍服务)
-├── ui/                  # 界面表现层 (基于 Jetpack Compose)
-│   ├── home/            # 首页控制中心（独立通知栏组件）
-│   ├── history/         # 历史记录列表与多维详情展示
-│   └── settings/        # 系统配置、模型管理与关于页面
-├── data/                # 数据持久化 (Room 数据库、DataStore 偏好设置)
-└── utils/               # 工具类 (文件、通知、日期、自动化工具)
+├── capture/       # 截屏引擎（策略模式，三种实现）
+├── floating/      # 悬浮交互层（悬浮球、扇形菜单、抽屉、选区裁剪）
+├── mode/          # 模式系统（通用模式 + ModeConfig）
+├── network/       # 网络与 AI 层（LLM 适配器、SSE 解析、处理管道、搜索、Agent 工具）
+├── render/        # 渲染引擎（Markdown + LaTeX 原生渲染）
+├── service/       # 后台服务（MainService、无障碍服务、Shizuku 服务）
+├── ui/            # UI 层（首页、历史记录、设置页、通用组件）
+├── data/          # 数据层（Room 数据库、DataStore 配置、数据模型）
+└── utils/         # 工具类
 ```
 
-## 🛠️ 技术栈和依赖
+### 技术栈
 
-| 领域    | 技术选型                                             |
-|-------|--------------------------------------------------|
-| 编程语言  | Kotlin                                           |
-| 导航    | Navigation Compose                               |
-| UI 框架 | Jetpack Compose + Material 3                     |
-| 数据持久化 | Room（历史记录） + DataStore（设置）                       |
-| 网络通信  | OkHttp + okhttp-sse                              |
-| 序列化   | Kotlinx Serialization                            |
-| 依赖注入  | 手动（AppContainer）                                 |
-| 截图    | MediaProjection / AccessibilityService / Shizuku |
-| 后台运行  | LifecycleService + 前台服务                          |
+- **架构**：MVVM + 手动依赖注入（AppContainer 持有全局单例）
+    - OkHttpClient、UnifiedLLMClient、ProcessingPipeline 等核心组件集中管理
+    - 支持运行时重建网络栈（切换信任所有证书）
+- **UI**：Jetpack Compose + Material 3 + Navigation Compose
+    - 单 Activity 架构，Compose 页面导航
+- **网络**：OkHttp + SSE 流式传输，kotlinx.serialization 序列化
+    - 统一 SSE 解析器，支持首块超时检测
+    - 内置 OpenAI、Anthropic、Gemini 四种协议适配
+- **持久化**：Room（历史记录）+ DataStore Preferences（配置）
+    - 配置单键 JSON 序列化存储，历史记录分页查询
+- **截屏**：MediaProjection / Shizuku ADB / AccessibilityService
+    - 统一 ScreenCaptureEngine 接口，MainService 按策略创建
+- **渲染**：intellij-markdown 解析 + jlatexmath 渲染
+    - 标题/列表/代码块/引用/LaTeX 公式全支持
+- **后台**：LifecycleService 前台服务
+    - 前台通知保持存活，Shizuku 用户服务实现特权操作
 
-| 依赖库                            | 用途                 |
-|--------------------------------|--------------------|
-| androidx.room                  | 历史记录数据库            |
-| okhttp3 + okhttp-sse           | HTTP / SSE 客户端     |
-| androidx.datastore-preferences | 设置持久化              |
-| rikka.shizuku                  | ADB 级屏幕截图          |
-| kotlinx-serialization-json     | JSON 序列化           |
-| androidx.navigation.compose    | 页面路由               |
-| androidx.lifecycle             | ViewModel + 服务生命周期 |
+### 联网搜索
 
-## 🚀 快速开始
+- **支持引擎**
+    - **Tavily**：默认端点 `api.tavily.com/search`，POST 请求
+    - **Serper.dev**：默认端点 `google.serper.dev/search`，X-API-KEY 认证
+    - **Brave Search**：默认端点 `api.search.brave.com/res/v1/web/search`，GET 请求
+- **配置步骤**：「设置 → 联网配置」添加搜索引擎 → 填写 API Key → 开启总开关
+- **调用方式**：AI 在 Agent 工具循环中**自动调用** `web_search` 工具，结果格式化为文本供参考
 
-### 前置条件
+---
 
-- JDK 17
-- Android Studio（最新稳定版）
-- 设备：推荐 Android 12 及以上设备或模拟器（项目 minSdk = 31）
+## 五、快速开始
 
-### 构建与运行
+### 编译环境
+
+- JDK 21 / Kotlin 2.1
+- Android Studio Ladybug 2024.2.1+
+- Android SDK 36（minSdk 31）
+
+### 构建
 
 ```bash
-# 克隆仓库
-git clone https://github.com/xingtianiy/SolveX.git
-
-# 在 Android Studio 中打开项目，执行 Gradle Sync 后即可运行
-
-# 或通过命令行构建：
-./gradlew assembleDebug
-
-# 运行测试
-./gradlew test
-
-# 构建 Release APK
-./gradlew assembleRelease
-# 输出目录：app/build/outputs/apk/release/
+./gradlew assembleDebug    # Debug APK
+./gradlew assembleRelease  # Release APK（arm64-v8a，含混淆）
 ```
 
-## 📜 开发者与许可
+---
+
+## 六、扩展
+
+- **新 LLM 提供商**
+    - `ProviderKind` 添加枚举
+    - 实现 `ProviderAdapter` 接口（stream / fetchModels）
+    - `UnifiedLLMClient.getAdapter()` 添加路由
+- **新 Agent 工具**
+    - 实现 `AgentTool` 接口（name / definition / invoke）
+    - `ProcessingPipeline.buildTools()` 注册
+- **新搜索引擎**
+    - 实现 `SearchEngineAdapter` 接口（search / validate）
+    - `SearchOrchestrator.getAdapter()` 添加分支
+    - `SearchProviderKind` 添加枚举
+- **新截屏引擎**
+    - 实现 `ScreenCaptureEngine` 接口（prepare / capture / release）
+    - `CaptureMode` 添加模式常量
+    - `MainService.startAsForeground()` 创建分支
+
+---
+
+## 七、许可
 
 - **开源协议**: Apache License 2.0
-- **源码地址**: [GitHub](https://github.com/xingtianiy/SolveX) / [Gitee](https://gitee.com/xingtianiy/SolveX)
-- **反馈渠道**: 请通过 GitHub Issues 提交建议或 BUG 反馈。
+- **源码地址
+  **: [GitHub](https://github.com/xingtianiy/SolveX) / [Gitee](https://gitee.com/xingtianiy/SolveX)
+- **反馈渠道**: GitHub / Gitee Issues

@@ -8,7 +8,7 @@ class CaptureModeTest {
     @Test
     fun `toDisplayName for known modes`() {
         assertEquals("系统录屏", CaptureMode.toDisplayName(CaptureMode.SYSTEM))
-        assertEquals("无障碍截图", CaptureMode.toDisplayName(CaptureMode.ACCESSIBILITY))
+        assertEquals("无障碍取字", CaptureMode.toDisplayName(CaptureMode.TEXT_ONLY))
         assertEquals("Shizuku ADB", CaptureMode.toDisplayName(CaptureMode.SHIZUKU))
     }
 
@@ -30,7 +30,6 @@ class CaptureModeTest {
     @Test
     fun `capture mode constants are correct`() {
         assertEquals("system", CaptureMode.SYSTEM)
-        assertEquals("accessibility", CaptureMode.ACCESSIBILITY)
         assertEquals("shizuku", CaptureMode.SHIZUKU)
     }
 }

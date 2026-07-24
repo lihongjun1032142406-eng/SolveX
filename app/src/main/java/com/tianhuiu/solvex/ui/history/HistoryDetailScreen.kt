@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -23,7 +24,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Face
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Schedule
@@ -39,7 +42,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -53,6 +58,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -62,10 +68,13 @@ import com.tianhuiu.solvex.render.MarkdownParser
 import com.tianhuiu.solvex.ui.components.LoadingOverlay
 import com.tianhuiu.solvex.ui.components.MathView
 import com.tianhuiu.solvex.ui.components.StatusBadge
+import com.tianhuiu.solvex.ui.components.ToolCallSection
+import com.tianhuiu.solvex.ui.components.ToolDetailContent
 import com.tianhuiu.solvex.utils.AutomationTools
 import com.tianhuiu.solvex.utils.DateTimeUtils
 import com.tianhuiu.solvex.utils.NotificationUtils
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -81,6 +90,22 @@ fun HistoryDetailScreen(
 ) {
     val item by viewModel.getHistoryItemById(itemId).collectAsState(initial = null)
     var showFullscreenImage by remember { mutableStateOf(value = false) }
+    var isRenderingReady by remember { mutableStateOf(false) }
+    var selectedToolCall by remember { mutableStateOf<com.tianhuiu.solvex.data.models.ToolCallRecord?>(null) }
+
+    LaunchedEffect(Unit) {
+        delay(500)
+        isRenderingReady = true
+    }
+
+    val sections = remember(item?.result, isRenderingReady) {
+        val result = item?.result
+        if (isRenderingReady && result != null) {
+            MarkdownParser.parse(result)
+        } else {
+            emptyList()
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
@@ -231,10 +256,9 @@ fun HistoryDetailScreen(
                         }
 
                         // 3. 内容区块
-                        val sections = MarkdownParser.parse(currentItem.result)
                         val isQueryPlaceholder =
                             currentItem.query == "正在思考中..." || currentItem.query.isBlank()
-                        val isResultPlaceholder =
+                        val isResultPlaceholder = isRenderingReady && 
                             sections.all { it.title.isEmpty() && (it.content == "正在思考中..." || it.content.isBlank()) }
 
                         // 1. 提取阶段
@@ -278,6 +302,18 @@ fun HistoryDetailScreen(
                             }
                         }
 
+                        // 4. 工具调用记录
+                        val toolCalls = currentItem.toolCalls
+                        if (toolCalls.isNotEmpty()) {
+                            item {
+                                ToolCallSection(
+                                    toolCalls = toolCalls,
+                                    onDetailClick = { selectedToolCall = it },
+                                    modifier = Modifier.padding(horizontal = 16.dp)
+                                )
+                            }
+                        }
+
                         item {
                             Spacer(Modifier.height(32.dp))
                         }
@@ -286,9 +322,59 @@ fun HistoryDetailScreen(
             }
         }
 
+        // 工具调用详情 Overlay
+        selectedToolCall?.let { call ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.5f))
+                    .clickable(
+                        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                        indication = null
+                    ) { selectedToolCall = null },
+                contentAlignment = Alignment.Center
+            ) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth(0.9f)
+                        .padding(16.dp)
+                        .clickable(enabled = false) {},
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .padding(20.dp)
+                            .heightIn(max = 500.dp)
+                    ) {
+                        Text(
+                            text = "工具调用详情",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(Modifier.height(16.dp))
+
+                        ToolDetailContent(
+                            call = call,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+
+                        Spacer(Modifier.height(16.dp))
+                        TextButton(
+                            onClick = { selectedToolCall = null },
+                            modifier = Modifier.align(Alignment.End)
+                        ) {
+                            Text("关闭", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
+
         LoadingOverlay(
-            isLoading = item == null,
-            message = "加载详情中"
+            isLoading = item == null || !isRenderingReady,
+            message = if (item == null) "加载详情中..." else "渲染内容中..."
         )
     }
 }
@@ -386,6 +472,7 @@ fun ContentCard(
     badgeText: String? = null,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     Column(
         modifier = modifier.padding(top = 12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -400,17 +487,55 @@ fun ContentCard(
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Bold
             )
-            if (badgeText != null) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (badgeText != null) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                        shape = RoundedCornerShape(4.dp)
+                    ) {
+                        Text(
+                            text = badgeText,
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    Spacer(Modifier.width(8.dp))
+                }
+                // 复制按钮
+                var isCopied by remember { mutableStateOf(false) }
+                LaunchedEffect(isCopied) {
+                    if (isCopied) {
+                        delay(3000)
+                        isCopied = false
+                    }
+                }
                 Surface(
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                    onClick = {
+                        com.tianhuiu.solvex.utils.SystemUtils.copyToClipboard(context, content)
+                        isCopied = true
+                    },
+                    color = if (isCopied) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f),
                     shape = RoundedCornerShape(4.dp)
                 ) {
-                    Text(
-                        text = badgeText,
-                        style = MaterialTheme.typography.labelSmall,
+                    Row(
                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                        color = MaterialTheme.colorScheme.primary
-                    )
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = if (isCopied) Icons.Default.Check else Icons.Default.ContentCopy,
+                            contentDescription = null,
+                            modifier = Modifier.size(10.dp),
+                            tint = if (isCopied) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            text = if (isCopied) "已复制" else "复制",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (isCopied) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
         }
@@ -444,6 +569,7 @@ fun DetailSection(
     badgeText: String? = null,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     Column(
         modifier = modifier.padding(top = 12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -461,17 +587,57 @@ fun DetailSection(
                     fontWeight = FontWeight.Bold
                 )
 
-                if (badgeText != null) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (badgeText != null) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                            shape = RoundedCornerShape(4.dp)
+                        ) {
+                            Text(
+                                text = badgeText,
+                                style = MaterialTheme.typography.labelSmall,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        Spacer(Modifier.width(8.dp))
+                    }
+
+                    // 新增复制按钮
+                    var isCopied by remember { mutableStateOf(false) }
+                    LaunchedEffect(isCopied) {
+                        if (isCopied) {
+                            delay(3000)
+                            isCopied = false
+                        }
+                    }
+
                     Surface(
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                        onClick = {
+                            com.tianhuiu.solvex.utils.SystemUtils.copyToClipboard(context, content)
+                            isCopied = true
+                        },
+                        color = if (isCopied) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f),
                         shape = RoundedCornerShape(4.dp)
                     ) {
-                        Text(
-                            text = badgeText,
-                            style = MaterialTheme.typography.labelSmall,
+                        Row(
                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                            color = MaterialTheme.colorScheme.primary
-                        )
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = if (isCopied) Icons.Default.Check else Icons.Default.ContentCopy,
+                                contentDescription = null,
+                                modifier = Modifier.size(10.dp),
+                                tint = if (isCopied) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                text = if (isCopied) "已复制" else "复制",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (isCopied) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                 }
             }

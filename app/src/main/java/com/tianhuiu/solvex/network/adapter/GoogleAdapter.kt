@@ -38,31 +38,69 @@ class GoogleAdapter(
     override suspend fun stream(request: StreamRequest): Flow<LlmEvent> = callbackFlow {
         // 构建 Gemini API 请求体
         val body = buildJsonObject {
-            if (request.systemPrompt.isNotBlank()) {
+            val systemMsg = request.messages.find { it.role == "system" }
+            if (systemMsg != null) {
                 put("system_instruction", buildJsonObject {
                     put("parts", buildJsonArray {
-                        add(buildJsonObject { put("text", request.systemPrompt) })
+                        add(buildJsonObject { put("text", systemMsg.content) })
                     })
                 })
             }
             put("contents", buildJsonArray {
-                add(buildJsonObject {
-                    put("role", "user")
-                    put("parts", buildJsonArray {
-                        request.imagesBase64.forEach { img ->
-                            add(buildJsonObject {
-                                put("inlineData", buildJsonObject {
-                                    put("mimeType", "image/jpeg")
-                                    put("data", img)
+                request.messages.filter { it.role != "system" }.forEach { msg ->
+                    add(buildJsonObject {
+                        put("role", if (msg.role == "assistant") "model" else "user")
+                        put("parts", buildJsonArray {
+                            if (msg.role == "user" && request.imagesBase64.isNotEmpty() && msg == request.messages.lastOrNull { it.role == "user" }) {
+                                request.imagesBase64.forEach { img ->
+                                    add(buildJsonObject {
+                                        put("inlineData", buildJsonObject {
+                                            put("mimeType", "image/jpeg")
+                                            put("data", img)
+                                        })
+                                    })
+                                }
+                            }
+                            if (msg.role == "tool") {
+                                add(buildJsonObject {
+                                    put("functionResponse", buildJsonObject {
+                                        put("name", msg.toolName ?: "unknown")
+                                        put("response", buildJsonObject {
+                                            put("content", msg.content)
+                                        })
+                                    })
                                 })
-                            })
-                        }
-                        add(buildJsonObject { put("text", request.userPrompt) })
+                            } else if (msg.role == "assistant" && msg.toolCalls != null) {
+                                msg.toolCalls.forEach { tc ->
+                                    add(buildJsonObject {
+                                        put("functionCall", buildJsonObject {
+                                            put("name", tc.name)
+                                            put("args", try {
+                                                json.parseToJsonElement(tc.arguments).jsonObject
+                                            } catch (_: Exception) {
+                                                buildJsonObject { put("query", tc.arguments) }
+                                            })
+                                        })
+                                    })
+                                }
+                            } else {
+                                if (msg.content.isNotBlank()) {
+                                    add(buildJsonObject { put("text", msg.content) })
+                                }
+                            }
+                        })
                     })
-                })
+                }
             })
             request.tools?.let { tools ->
-                put("tools", ToolRegistry.formatForProvider(tools, ProviderKind.GOOGLE))
+                put("tools", buildJsonArray {
+                    add(ToolRegistry.formatForProvider(tools, ProviderKind.GOOGLE))
+                })
+                put("toolConfig", buildJsonObject {
+                    put("functionCallingConfig", buildJsonObject {
+                        put("mode", "AUTO")
+                    })
+                })
             }
         }
 
@@ -83,17 +121,28 @@ class GoogleAdapter(
                             val candidates = obj["candidates"]?.jsonArray
                             val candidate = candidates?.firstOrNull()?.jsonObject
                             val content = candidate?.get("content")?.jsonObject
-                            val parts = content?.get("parts")?.jsonArray
-                            // 提取文本增量
-                            if (parts != null) {
-                                val text =
-                                    parts.firstOrNull()?.jsonObject?.get("text")?.jsonPrimitive?.content
-                                if (text != null) return@stream SseStreamClient.StreamEventResult(
-                                    delta = text
+                            val parts = content?.get("parts")?.jsonArray ?: return@stream null
+                            
+                            // 1. 文本增量
+                            val text = parts.firstOrNull()?.jsonObject?.get("text")?.jsonPrimitive?.content
+                            if (text != null) return@stream SseStreamClient.StreamEventResult(delta = text)
+                            
+                            // 2. 工具调用
+                            val funcCall = parts.firstOrNull()?.jsonObject?.get("functionCall")?.jsonObject
+                            if (funcCall != null) {
+                                val name = funcCall["name"]?.jsonPrimitive?.content ?: ""
+                                val args = funcCall["args"]?.jsonObject?.mapValues { it.value.jsonPrimitive.content } ?: emptyMap()
+                                return@stream SseStreamClient.StreamEventResult(
+                                    toolCall = LlmEvent.ToolCall(
+                                        id = "gemini_${System.currentTimeMillis()}",
+                                        name = name,
+                                        arguments = args
+                                    )
                                 )
                             }
+
                             // 检查是否已完成
-                            candidate?.get("finishReason")?.jsonPrimitive?.let { finish ->
+                            candidate["finishReason"]?.jsonPrimitive?.let { finish ->
                                 if (finish.content == "STOP") {
                                     return@stream SseStreamClient.StreamEventResult(done = true)
                                 }

@@ -8,34 +8,26 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Business
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Error
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -43,11 +35,8 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SheetState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -62,7 +51,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
@@ -71,12 +59,20 @@ import androidx.compose.ui.unit.dp
 import com.tianhuiu.solvex.data.models.ModelProvider
 import com.tianhuiu.solvex.ui.ConnectivityTestState
 import com.tianhuiu.solvex.ui.MainViewModel
+import com.tianhuiu.solvex.ui.components.ConnectivityStatusIcon
+import com.tianhuiu.solvex.ui.components.GenericSelectionSheet
+import com.tianhuiu.solvex.ui.components.PreferredProviderCard
+import com.tianhuiu.solvex.ui.components.SettingsSectionTitle
 import com.tianhuiu.solvex.ui.components.SolveXConfirmDialog
 import com.tianhuiu.solvex.ui.components.SolveXDialog
 import com.tianhuiu.solvex.ui.components.SortableListItem
+import com.tianhuiu.solvex.ui.components.TooltipText
 import kotlinx.coroutines.launch
 import java.util.Collections
 
+/**
+ * 模型提供商管理屏幕。
+ */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ModelSettingsScreen(
@@ -95,16 +91,21 @@ fun ModelSettingsScreen(
     val listState = rememberLazyListState()
     var draggedItemIndex by remember { mutableStateOf<Int?>(null) }
     val scope = rememberCoroutineScope()
-    LocalContext.current
 
     val sheetState = rememberModalBottomSheetState()
     var showProviderSheet by remember { mutableStateOf(false) }
 
     if (showProviderSheet) {
-        ProviderSelectionSheet(
-            viewModel = viewModel,
+        GenericSelectionSheet(
+            title = "选择默认提供方",
+            subTitle = "决定了在未手动指定模型场景下的优先尝试顺序",
+            items = viewModel.providers.map { it.id to it.name },
+            selectedId = viewModel.defaultProviderId,
+            onItemSelected = { viewModel.updateDefaultProviderId(it) },
             onDismissRequest = { showProviderSheet = false },
-            sheetState = sheetState
+            sheetState = sheetState,
+            noneLabel = "不设置默认提供方",
+            noneSubLabel = "将仅使用手动指定的模型"
         )
     }
 
@@ -131,188 +132,109 @@ fun ModelSettingsScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            // 提示信息区域
-            Surface(
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier.padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        Icons.Default.Info,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        "长按右侧图标拖动排序，决定默认优先尝试顺序",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-
-            // 全局首选提供方选择器（独立卡片）
-            Column(modifier = Modifier.padding(16.dp)) {
-                val selectedProvider = viewModel.providers.find { it.id == viewModel.defaultProviderId }
-
-                Text(
-                    "全局首选提供方",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold
-                )
-                Spacer(Modifier.height(8.dp))
-                Surface(
-                    onClick = { showProviderSheet = true },
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            Icons.Default.Business,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(Modifier.width(12.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                selectedProvider?.name ?: "未设置 (将仅使用手动指定的模型)",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                        Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
-                    }
-                }
-            }
-
             LazyColumn(
                 state = listState,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-                contentPadding = PaddingValues(vertical = 16.dp)
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = 100.dp)
             ) {
+                // 1. 全局首选提供方
+                item {
+                    val selectedProvider = viewModel.providers.find { it.id == viewModel.defaultProviderId }
+                    PreferredProviderCard(
+                        label = "全局首选提供方",
+                        selectedName = selectedProvider?.name,
+                        icon = Icons.Default.Business,
+                        onClick = { showProviderSheet = true }
+                    )
+                }
+
+                // 2. 列表标题
+                item {
+                    Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                        SettingsSectionTitle(text = "已配置提供商列表")
+                    }
+                }
+
+                // 3. 提供商列表
                 itemsIndexed(providersList, key = { _, item -> item.id }) { index, provider ->
                     val testState = viewModel.connectivityTestStates[provider.id]
 
-                    SortableListItem(
-                        index = index,
-                        itemCount = providersList.size,
-                        isDragging = draggedItemIndex == index,
-                        onDragStart = { draggedItemIndex = index },
-                        onDragEnd = {
-                            draggedItemIndex = null
-                            viewModel.updateProviders(providersList.toList())
-                        },
-                        onSwap = { from, to ->
-                            Collections.swap(providersList, from, to)
-                            draggedItemIndex = to
-                        }
-                    ) {
-                        // 连通性测试图标/状态
-                        IconButton(
-                            onClick = {
-                                scope.launch {
-                                    when (val result = viewModel.testConnectivity(provider)) {
-                                        is ConnectivityTestState.Success ->
-                                            viewModel.showFeedbackDialog(
-                                                title = "连接成功",
-                                                message = "${provider.name}: 连通成功 (${result.modelCount} 个模型)",
-                                                icon = Icons.Default.CheckCircle
-                                            )
+                    Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 5.dp)) {
+                        SortableListItem(
+                            index = index,
+                            itemCount = providersList.size,
+                            isDragging = draggedItemIndex == index,
+                            onDragStart = { draggedItemIndex = index },
+                            onDragEnd = {
+                                draggedItemIndex = null
+                                viewModel.updateProviders(providersList.toList())
+                            },
+                            onSwap = { from, to ->
+                                Collections.swap(providersList, from, to)
+                                draggedItemIndex = to
+                            }
+                        ) {
+                            ConnectivityStatusIcon(
+                                state = testState,
+                                onClick = {
+                                    scope.launch {
+                                        when (val result = viewModel.testConnectivity(provider)) {
+                                            is ConnectivityTestState.Success ->
+                                                viewModel.showFeedbackDialog(
+                                                    title = "连接成功",
+                                                    message = "${provider.name}: 连通成功 (${result.modelCount} 个模型)",
+                                                    icon = Icons.Default.CheckCircle
+                                                )
 
-                                        is ConnectivityTestState.Failure ->
-                                            viewModel.showFeedbackDialog(
-                                                title = "连接失败",
-                                                message = "${provider.name}: ${result.message}",
-                                                icon = Icons.Default.Error
-                                            )
+                                            is ConnectivityTestState.Failure ->
+                                                viewModel.showFeedbackDialog(
+                                                    title = "连接失败",
+                                                    message = "${provider.name}: ${result.message}",
+                                                    icon = Icons.Default.Error
+                                                )
 
-                                        else -> {}
+                                            else -> {}
+                                        }
                                     }
                                 }
-                            }
-                        ) {
-                            when (testState) {
-                                is ConnectivityTestState.Testing ->
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(20.dp),
-                                        strokeWidth = 2.dp
-                                    )
-
-                                is ConnectivityTestState.Success ->
-                                    Icon(
-                                        Icons.Default.CheckCircle,
-                                        "连接成功",
-                                        tint = Color(0xFF4CAF50),
-                                        modifier = Modifier.size(20.dp)
-                                    )
-
-                                is ConnectivityTestState.Failure ->
-                                    Icon(
-                                        Icons.Default.Error,
-                                        "连接失败",
-                                        tint = MaterialTheme.colorScheme.error,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-
-                                else ->
-                                    Icon(
-                                        Icons.Default.Sync,
-                                        "测试连通",
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                            }
-                        }
-
-                        Column(
-                            modifier = Modifier
-                                .weight(1f)
-                                .padding(horizontal = 4.dp)
-                        ) {
-                            Text(
-                                provider.name,
-                                style = MaterialTheme.typography.bodyLarge,
-                                fontWeight = FontWeight.Bold
                             )
-                            Text(
-                                provider.type.displayName,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                            )
-                        }
 
-                        Row {
-                            IconButton(onClick = { onEditProvider(provider.id) }) {
-                                Icon(
-                                    Icons.Default.Edit,
-                                    contentDescription = "编辑",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(20.dp)
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(horizontal = 4.dp)
+                            ) {
+                                TooltipText(
+                                    provider.name,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = FontWeight.Bold,
+                                    onClick = { onEditProvider(provider.id) }
+                                )
+                                Text(
+                                    provider.type.displayName,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                                 )
                             }
 
-                            IconButton(onClick = { providerToDelete = provider }) {
-                                Icon(
-                                    Icons.Default.Delete,
-                                    contentDescription = "删除",
-                                    tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f),
-                                    modifier = Modifier.size(20.dp)
-                                )
+                            Row {
+                                IconButton(onClick = { onEditProvider(provider.id) }) {
+                                    Icon(
+                                        Icons.Default.Edit,
+                                        contentDescription = "编辑",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+
+                                IconButton(onClick = { providerToDelete = provider }) {
+                                    Icon(
+                                        Icons.Default.Delete,
+                                        contentDescription = "删除",
+                                        tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f),
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
                             }
                         }
                     }
@@ -321,7 +243,6 @@ fun ModelSettingsScreen(
         }
     }
 
-    // 删除确认弹窗
     if (providerToDelete != null) {
         SolveXConfirmDialog(
             onDismissRequest = { providerToDelete = null },
@@ -339,177 +260,8 @@ fun ModelSettingsScreen(
 }
 
 /**
- * 全局提供方选择底栏。
+ * 预览已同步模型的对话框。
  */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun ProviderSelectionSheet(
-    viewModel: MainViewModel,
-    onDismissRequest: () -> Unit,
-    sheetState: SheetState
-) {
-    ModalBottomSheet(
-        onDismissRequest = onDismissRequest,
-        sheetState = sheetState,
-        containerColor = MaterialTheme.colorScheme.surface,
-        dragHandle = {
-            Column(
-                modifier = Modifier.padding(vertical = 12.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Surface(
-                    modifier = Modifier
-                        .width(32.dp)
-                        .height(4.dp),
-                    color = MaterialTheme.colorScheme.outlineVariant,
-                    shape = RoundedCornerShape(2.dp)
-                ) {}
-            }
-        }
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp)
-                .padding(bottom = 32.dp)
-        ) {
-            Text(
-                "选择默认提供方",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold
-            )
-            Text(
-                "未手动指定模型的场景将优先尝试该提供方",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            
-            Spacer(Modifier.height(16.dp))
-            
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.heightIn(max = 400.dp)
-            ) {
-                // 选项：不设置
-                item {
-                    val isNoneSelected = viewModel.defaultProviderId == null
-                    Surface(
-                        onClick = {
-                            viewModel.updateDefaultProviderId(null)
-                            onDismissRequest()
-                        },
-                        shape = RoundedCornerShape(12.dp),
-                        color = if (isNoneSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f) 
-                                else Color.Transparent,
-                        border = if (isNoneSelected) androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
-                                else null
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = if (isNoneSelected) MaterialTheme.colorScheme.primary 
-                                        else MaterialTheme.colorScheme.surfaceVariant,
-                                modifier = Modifier.size(36.dp)
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        Icons.Default.Block,
-                                        null,
-                                        modifier = Modifier.size(20.dp),
-                                        tint = if (isNoneSelected) MaterialTheme.colorScheme.onPrimary 
-                                               else MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                            Spacer(Modifier.width(16.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    "不设置默认提供方",
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    "将仅使用手动指定的模型",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            RadioButton(
-                                selected = isNoneSelected,
-                                onClick = null
-                            )
-                        }
-                    }
-                }
-
-                // 提供方列表
-                items(viewModel.providers.size) { index ->
-                    val provider = viewModel.providers[index]
-                    val isSelected = provider.id == viewModel.defaultProviderId
-                    
-                    Surface(
-                        onClick = {
-                            viewModel.updateDefaultProviderId(provider.id)
-                            onDismissRequest()
-                        },
-                        shape = RoundedCornerShape(12.dp),
-                        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f) 
-                                else Color.Transparent,
-                        border = if (isSelected) androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
-                                else null
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = if (isSelected) MaterialTheme.colorScheme.primary 
-                                        else MaterialTheme.colorScheme.surfaceVariant,
-                                modifier = Modifier.size(36.dp)
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        Icons.Default.Business,
-                                        null,
-                                        modifier = Modifier.size(20.dp),
-                                        tint = if (isSelected) MaterialTheme.colorScheme.onPrimary 
-                                               else MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                            Spacer(Modifier.width(16.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    provider.name,
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    provider.type.displayName,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            RadioButton(
-                                selected = isSelected,
-                                onClick = null
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
 @OptIn(
     ExperimentalMaterial3Api::class,
     ExperimentalFoundationApi::class

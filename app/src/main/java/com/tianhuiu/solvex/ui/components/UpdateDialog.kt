@@ -62,7 +62,9 @@ fun UpdateDialog(
     onDismiss: () -> Unit,
     onUpdate: () -> Unit
 ) {
-    val dismissible = info.isDismissible && downloadStatus !is DownloadStatus.Downloading
+    val isCritical = info.updateLevel == UpdateLevel.CRITICAL
+    val isDownloading = downloadStatus is DownloadStatus.Downloading
+    val dismissible = !isCritical && !isDownloading
 
     Dialog(
         onDismissRequest = { if (dismissible) onDismiss() },
@@ -223,12 +225,37 @@ fun UpdateDialog(
                         }
 
                         else -> {
-                            MainButton(text = "立即升级", onClick = onUpdate)
+                            Column {
+                                MainButton(text = "立即升级", onClick = onUpdate)
+                                if (!isCritical) {
+                                    Spacer(Modifier.height(8.dp))
+                                    TextButton(
+                                        onClick = onDismiss,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text("稍后再说", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
+                            }
                         }
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun TextButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    androidx.compose.material3.TextButton(
+        onClick = onClick,
+        modifier = modifier
+    ) {
+        content()
     }
 }
 

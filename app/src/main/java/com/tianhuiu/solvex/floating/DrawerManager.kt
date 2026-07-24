@@ -75,6 +75,8 @@ class DrawerManager(
         height = WindowManager.LayoutParams.MATCH_PARENT
     }
 
+    private var lastHistoryId: String? = null
+
     /**
      * 显示抽屉。
      */
@@ -85,10 +87,13 @@ class DrawerManager(
         showMetadata: Boolean = false,
         autoScrollEnabled: Boolean = true
     ) {
-
         autoScroll.value = autoScrollEnabled
 
-        clearLiveBuffer()
+        if (lastHistoryId != historyId) {
+            clearLiveBuffer()
+        }
+        lastHistoryId = historyId
+
         if (composeView != null) {
             updateContent(historyId)
             return
@@ -160,6 +165,14 @@ class DrawerManager(
      */
     fun appendLiveQuery(delta: String) {
         liveQuery += delta
+        currentItem.value = currentItem.value?.copy(query = liveQuery)
+    }
+
+    /**
+     * 覆盖式设置提取文本（用于无障碍取字等一次性场景）。
+     */
+    fun setLiveQuery(text: String) {
+        liveQuery = text
         currentItem.value = currentItem.value?.copy(query = liveQuery)
     }
 

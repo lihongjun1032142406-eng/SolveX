@@ -26,11 +26,8 @@ import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.CenterAlignedTopAppBar
-import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenuAnchorType
-import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -55,22 +52,26 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.tianhuiu.solvex.data.models.ModelProvider
 import com.tianhuiu.solvex.data.models.ProviderKind
+import com.tianhuiu.solvex.ui.ConnectivityTestState
 import com.tianhuiu.solvex.ui.GlobalDialogData
 import com.tianhuiu.solvex.ui.MainViewModel
+import com.tianhuiu.solvex.ui.components.ExposedDropdown
+import com.tianhuiu.solvex.ui.components.SettingsSectionTitle
 import kotlinx.coroutines.launch
 import java.util.UUID
 
 /**
- * 提供方编辑页面。
+ * 模型提供方编辑页面。
+ * 用于配置服务商类型、API 地址、密钥及默认模型。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProviderEditScreen(
     providerId: String?,
     viewModel: MainViewModel,
-    onBack: () -> Unit
+    onBack: () -> Unit,
 ) {
-    val existingProvider = remember(providerId) {
+    val existingProvider = remember(providerId, viewModel.providers) {
         viewModel.providers.find { it.id == providerId }
     }
 
@@ -81,16 +82,12 @@ fun ProviderEditScreen(
     var apiKey by remember { mutableStateOf(existingProvider?.apiKey ?: "") }
     var defaultOcrModel by remember { mutableStateOf(existingProvider?.defaultOcrModel ?: "") }
     var defaultTextModel by remember { mutableStateOf(existingProvider?.defaultTextModel ?: "") }
-    var defaultVisionModel by remember {
-        mutableStateOf(
-            existingProvider?.defaultVisionModel ?: ""
-        )
+    var defaultVisionModel by remember { mutableStateOf(existingProvider?.defaultVisionModel ?: "") }
+    var availableModels by remember(existingProvider) { 
+        mutableStateOf(existingProvider?.availableModels ?: emptyList()) 
     }
 
-    var expanded by remember { mutableStateOf(false) }
     var apiKeyVisible by remember { mutableStateOf(false) }
-
-    // 用于预览模型列表的弹窗状态
     var showPreviewDialog by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
@@ -100,7 +97,7 @@ fun ProviderEditScreen(
         name = name,
         url = url,
         apiKey = apiKey,
-        availableModels = existingProvider?.availableModels ?: emptyList(),
+        availableModels = availableModels,
         defaultOcrModel = defaultOcrModel,
         defaultTextModel = defaultTextModel,
         defaultVisionModel = defaultVisionModel
@@ -174,39 +171,13 @@ fun ProviderEditScreen(
         ) {
             // 连接配置
             ProviderSection(title = "连接配置", icon = Icons.Default.Link) {
-                ExposedDropdownMenuBox(
-                    expanded = expanded,
-                    onExpandedChange = { expanded = it },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    OutlinedTextField(
-                        value = type.displayName,
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text("服务商类型") },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-                        colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
-                        modifier = Modifier
-                            .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
-                            .fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp)
-                    )
-                    ExposedDropdownMenu(
-                        expanded = expanded,
-                        onDismissRequest = { expanded = false }
-                    ) {
-                        types.forEach { selectionOption ->
-                            DropdownMenuItem(
-                                text = { Text(selectionOption.displayName) },
-                                onClick = {
-                                    type = selectionOption
-                                    expanded = false
-                                },
-                                contentPadding = ExposedDropdownMenuDefaults.ItemContentPadding
-                            )
-                        }
-                    }
-                }
+                ExposedDropdown(
+                    label = "服务商类型",
+                    selectedOption = type.displayName,
+                    options = types,
+                    optionLabel = { it.displayName },
+                    onOptionSelected = { type = it }
+                )
 
                 OutlinedTextField(
                     value = name,
@@ -257,14 +228,42 @@ fun ProviderEditScreen(
                 title = "模型设置", 
                 icon = Icons.Default.SmartToy,
                 trailing = {
-                    TextButton(onClick = {
-                        scope.launch {
-                            viewModel.testConnectivity(currentProviderState)
+                    val testState = viewModel.connectivityTestStates[providerId ?: ""]
+                    val isFetching = testState is ConnectivityTestState.Testing
+
+                    TextButton(
+                        onClick = {
+                            scope.launch {
+                                when (val result = viewModel.testConnectivity(currentProviderState)) {
+                                    is ConnectivityTestState.Success -> {
+                                        val models = viewModel.fetchModelsForProvider(currentProviderState)
+                                        if (models.isNotEmpty()) availableModels = models
+                                        viewModel.showFeedbackDialog(
+                                            title = "同步成功",
+                                            message = "成功同步 ${result.modelCount} 个模型",
+                                            icon = Icons.Default.SmartToy
+                                        )
+                                    }
+                                    is ConnectivityTestState.Failure -> {
+                                        viewModel.showFeedbackDialog(
+                                            title = "获取失败",
+                                            message = result.message,
+                                            icon = Icons.Default.Save
+                                        )
+                                    }
+                                    else -> {}
+                                }
+                            }
+                        },
+                        enabled = !isFetching && url.isNotBlank()
+                    ) {
+                        if (isFetching) {
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        } else {
+                            Icon(Icons.Default.Refresh, null, modifier = Modifier.size(18.dp))
                         }
-                    }) {
-                        Icon(Icons.Default.Refresh, null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(4.dp))
-                        Text("获取列表")
+                        Text(if (isFetching) "正在获取..." else "获取列表")
                     }
                 }
             ) {
@@ -323,7 +322,7 @@ fun ProviderEditScreen(
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                "当前已缓存 ${existingProvider?.availableModels?.size ?: 0} 个可用模型",
+                                "当前已缓存 ${availableModels.size} 个可用模型",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -334,13 +333,20 @@ fun ProviderEditScreen(
         }
     }
 
-    if (showPreviewDialog && existingProvider != null) {
+    if (showPreviewDialog) {
+        val testState = viewModel.connectivityTestStates[providerId ?: ""]
         ModelPreviewDialog(
-            provider = existingProvider,
-            isFetching = false,
+            provider = currentProviderState,
+            isFetching = testState is ConnectivityTestState.Testing,
             onRefresh = {
                 scope.launch {
-                    viewModel.testConnectivity(existingProvider)
+                    when (val result = viewModel.testConnectivity(currentProviderState)) {
+                        is ConnectivityTestState.Success -> {
+                            val models = viewModel.fetchModelsForProvider(currentProviderState)
+                            if (models.isNotEmpty()) availableModels = models
+                        }
+                        else -> {}
+                    }
                 }
             },
             onDismiss = { showPreviewDialog = false }
@@ -348,12 +354,15 @@ fun ProviderEditScreen(
     }
 }
 
+/**
+ * 编辑页面的段落容器。
+ */
 @Composable
 fun ProviderSection(
     title: String,
     icon: ImageVector,
     trailing: @Composable (() -> Unit)? = null,
-    content: @Composable () -> Unit
+    content: @Composable () -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(
@@ -364,7 +373,7 @@ fun ProviderSection(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(12.dp))
-                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                SettingsSectionTitle(text = title)
             }
             trailing?.invoke()
         }

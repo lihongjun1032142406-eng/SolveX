@@ -1,4 +1,4 @@
 <resources>
     <string name="app_name">SolveX</string>
-    <string name="accessibility_service_description">SolveX 无障碍截图服务，用于截取屏幕内容以识别题目。</string>
+    <string name="accessibility_service_description">SolveX 无障碍取字服务，用于提取屏幕内容以识别题目。</string>
 </resources>

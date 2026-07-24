@@ -17,6 +17,24 @@ enum class AnalysisStatus(val displayName: String) {
 }
 
 /**
+ * 工具调用记录。
+ *
+ * @property id 工具调用唯一 ID (API 返回)
+ * @property name 工具名称
+ * @property arguments 调用参数，JSON 字符串
+ * @property result 工具执行结果摘要，空表示尚未执行或正在执行
+ * @property metadata 结构化详情数据 (如搜索结果 JSON)，供 UI 模板化显示
+ */
+@Serializable
+data class ToolCallRecord(
+    val id: String = "",
+    val name: String,
+    val arguments: String = "",
+    val result: String = "",
+    val metadata: String? = null
+)
+
+/**
  * 历史记录条目数据模型。
  */
 @Serializable
@@ -36,4 +54,5 @@ data class HistoryItem(
     val modelName: String? = null,
     val engineName: String? = null,
     val status: AnalysisStatus = AnalysisStatus.SUCCESS,
+    val toolCalls: List<ToolCallRecord> = emptyList(),
 )

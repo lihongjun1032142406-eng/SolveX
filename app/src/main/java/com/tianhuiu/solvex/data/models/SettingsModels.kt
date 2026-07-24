@@ -72,6 +72,20 @@ data class DrawerSettings(
 )
 
 /**
+ * 悬浮球外观设置。
+ */
+@Serializable
+data class FloatingBallAppearance(
+    val diameterDp: Float = 42f,
+    val spinnerDiameterDp: Float = 52f,
+    val textSizeSp: Float = 14f,
+    val overallOpacity: Float = 1.0f,
+    val contentOpacity: Float = 1.0f,
+    val enableMenu: Boolean = true,
+    val enabledMenuItems: Set<String> = setOf("engine", "search", "settings", "baidu"),
+)
+
+/**
  * 权限及基础设置。
  */
 @Serializable
@@ -79,7 +93,7 @@ data class PermissionSettings(
     val enableAutoHideBall: Boolean = true,
     val captureMode: String = CaptureMode.SYSTEM,
     val drawerSettings: DrawerSettings = DrawerSettings(),
-    val ballFullSizeDp: Float = 42f,
+    val appearance: FloatingBallAppearance = FloatingBallAppearance(),
     val enableScreenProtection: Boolean = false,
     val enableStealthMode: Boolean = false,
     val hasShownStealthWarning: Boolean = false,
@@ -91,15 +105,13 @@ data class PermissionSettings(
  */
 object CaptureMode {
     const val SYSTEM = "system"
-    const val ACCESSIBILITY = "accessibility"
     const val SHIZUKU = "shizuku"
     const val TEXT_ONLY = "text_only"
 
     fun toDisplayName(mode: String?): String = when (mode) {
         SHIZUKU -> "Shizuku ADB"
-        ACCESSIBILITY -> "无障碍截图"
         SYSTEM -> "系统录屏"
-        TEXT_ONLY -> "屏幕取字"
+        TEXT_ONLY -> "无障碍取字"
         else -> mode ?: "未知"
     }
 }
@@ -112,12 +124,12 @@ enum class PermissionSetupStep(
     val description: String,
     val isOptional: Boolean = false,
 ) {
-    OVERLAY("悬浮窗权限", "允许在其他应用上层显示悬浮球，是 SolveX 的核心交互方式"),
-    NOTIFICATION("通知权限", "解析完成后发送系统通知，避免错过结果", isOptional = true),
-    ACCESSIBILITY("无障碍服务", "辅助获取屏幕内容，仅无障碍截屏模式需要"),
-    BATTERY("电池优化白名单", "允许 SolveX 在后台持续运行，防止被系统省电策略关闭"),
-    SHIZUKU("Shizuku 授权", "ADB 级截屏权限，一次授权永久有效，无需反复弹窗确认"),
-    DONE("设置完成", "SolveX 已准备就绪，可以开始使用了"),
+    OVERLAY("显示悬浮球", "允许在屏幕边缘显示一个小球，方便您随时呼唤 AI"),
+    NOTIFICATION("接收通知", "当 AI 解析完成后，通过通知提醒您查看结果", isOptional = true),
+    ACCESSIBILITY("开启无障碍服务", "这是“无障碍取字”模式的核心，能让 AI 直接阅读屏幕文字"),
+    BATTERY("允许后台运行", "防止系统为了省电偷偷关闭 SolveX，保证服务稳定不掉线"),
+    SHIZUKU("Shizuku 授权", "最稳定、最高效的授权方式，推荐高阶用户使用"),
+    DONE("配置完成", "太棒了！SolveX 已准备就绪，点击下方按钮开始使用吧"),
 }
 
 /**
@@ -131,12 +143,47 @@ data class AppConfig(
     val defaultProviderId: String? = null,
     val selectedAssistantId: String? = null,
     val selectedEngine: EngineType = EngineType.VISION_ENGINE,
-    val selectedModeId: String = ModeRegistry.defaultId(),
-    val modeConfigs: Map<String, ModeConfig> = emptyMap(),
+    val modeConfig: ModeConfig = ModeRegistry.getUniversal().defaultConfig(),
     val autoScrollContent: Boolean = true,
+    val webSearch: WebSearchSettings = WebSearchSettings(),
+    val trustAllCertificates: Boolean = false,
+)
+
+/**
+ * 搜索引擎类型。
+ */
+@Serializable
+enum class SearchProviderKind(val displayName: String) {
+    TAVILY("Tavily"),
+    SERPER("Serper.dev"),
+    BRAVE("Brave Search"),
+    CUSTOM("自定义 (Tavily 兼容)")
+}
+
+/**
+ * 搜索引擎配置。
+ */
+@Serializable
+data class SearchProviderConfig(
+    val id: String,
+    val name: String,
+    val kind: SearchProviderKind = SearchProviderKind.TAVILY,
+    val baseUrl: String = "",
+    val apiKey: String = ""
+)
+
+/**
+ * 联网搜索设置。
+ */
+@Serializable
+data class WebSearchSettings(
+    val enabled: Boolean = false,
+    val providers: List<SearchProviderConfig> = emptyList(),
+    val selectedProviderId: String? = null,
+    val maxResults: Int = 3,
 )
 
 // 获取当前模式配置
 fun AppConfig.currentModeConfig(): ModeConfig {
-    return modeConfigs[selectedModeId] ?: ModeRegistry.get(selectedModeId).defaultConfig()
+    return modeConfig
 }

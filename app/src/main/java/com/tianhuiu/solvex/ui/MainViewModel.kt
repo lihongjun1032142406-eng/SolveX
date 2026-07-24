@@ -5,6 +5,8 @@ import android.content.Intent
 import android.os.PowerManager
 import android.provider.Settings
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -20,14 +22,13 @@ import com.tianhuiu.solvex.data.models.AppConfig
 import com.tianhuiu.solvex.data.models.AssistantConfig
 import com.tianhuiu.solvex.data.models.CaptureMode
 import com.tianhuiu.solvex.data.models.EngineType
+import com.tianhuiu.solvex.data.models.FloatingBallAppearance
 import com.tianhuiu.solvex.data.models.ModelProvider
 import com.tianhuiu.solvex.data.models.PermissionSettings
 import com.tianhuiu.solvex.data.models.PermissionSetupStep
 import com.tianhuiu.solvex.data.models.ProviderKind
-import com.tianhuiu.solvex.data.models.currentModeConfig
 import com.tianhuiu.solvex.mode.ModeConfig
-import com.tianhuiu.solvex.mode.ModeRegistry
-import com.tianhuiu.solvex.network.UnifiedLLMClient
+import com.tianhuiu.solvex.mode.UniversalMode
 import com.tianhuiu.solvex.service.AdbCommandHelper
 import com.tianhuiu.solvex.service.MainService
 import com.tianhuiu.solvex.service.SolveXAccessibilityService
@@ -38,22 +39,23 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import rikka.shizuku.Shizuku
 import java.util.UUID
 
 /**
- * 应用全局数据导出结构。
+ * 应用配置导出/导入的数据结构。
  */
 @Serializable
 data class ExportData(
     val providers: List<ModelProvider> = emptyList(),
     val assistants: List<AssistantConfig> = emptyList(),
+    val webSearch: com.tianhuiu.solvex.data.models.WebSearchSettings? = null,
+    val permissions: com.tianhuiu.solvex.data.models.PermissionSettings? = null,
 )
 
 /**
- * 全局弹窗数据模型。
+ * 全局对话框的状态数据。
  */
 data class GlobalDialogData(
     val title: String,
@@ -63,162 +65,114 @@ data class GlobalDialogData(
     val onConfirm: () -> Unit = {},
     val onDismiss: (() -> Unit)? = null,
     val isDestructive: Boolean = false,
-    val icon: ImageVector? = null
+    val icon: ImageVector? = null,
 )
 
 /**
- * 应用全局 ViewModel：负责管理应用配置、权限状态及核心服务逻辑。
+ * SolveX 的核心 ViewModel。
+ * 管理全局配置状态、权限生命周期、后台服务协调以及数据持久化逻辑。
  */
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = SettingsRepository(application)
-
-    init {
-        (application as SolveXApplication).viewModel = this
-    }
-    override fun onCleared() {
-        super.onCleared()
-        (getApplication<Application>() as SolveXApplication).viewModel = null
-    }
-
     private val container = (application as SolveXApplication).container
-    private val client = container.okHttpClient
-    private val json = Json {
-        ignoreUnknownKeys = true
-        prettyPrint = true
-    }
-    private val llmClient = UnifiedLLMClient(client, json)
-
+    private val client get() = container.okHttpClient
+    private val json = Json { ignoreUnknownKeys = true; prettyPrint = true }
+    private val llmClient get() = container.unifiedLLMClient
     private var pendingSaveJob: kotlinx.coroutines.Job? = null
+
+    // region UI 响应式属性
 
     var providers by mutableStateOf(emptyList<ModelProvider>())
         private set
-
     var assistants by mutableStateOf(emptyList<AssistantConfig>())
         private set
-
     var permissions by mutableStateOf(PermissionSettings())
         private set
-
     var selectedAssistantId by mutableStateOf<String?>(null)
         private set
     var selectedEngine by mutableStateOf(EngineType.VISION_ENGINE)
         private set
-    var selectedModeId by mutableStateOf(ModeRegistry.defaultId())
-        private set
-
     var autoScrollContent by mutableStateOf(true)
         private set
-
+    var webSearchSettings by mutableStateOf(com.tianhuiu.solvex.data.models.WebSearchSettings())
+        private set
     var currentModeConfig by mutableStateOf(ModeConfig())
         private set
-
-    var allModeConfigs by mutableStateOf(emptyMap<String, ModeConfig>())
-        private set
-
     var defaultProviderId by mutableStateOf<String?>(null)
         private set
-
-    var isFetchingModels by mutableStateOf(value = false)
+    var trustAllCertificates by mutableStateOf(false)
         private set
+    var globalDialogState by mutableStateOf<GlobalDialogData?>(null)
+        private set
+
+    // endregion
+
+    // region 运行状态与权限
 
     var isOverlayPermissionGranted by mutableStateOf(false)
         private set
-
     var isNotificationPermissionGranted by mutableStateOf(false)
         private set
-
     var isServiceRunning by mutableStateOf(false)
         private set
-
     var activeModeId by mutableStateOf<String?>(null)
         private set
-
     var showStopConfirmationDialog by mutableStateOf(false)
         private set
-
     var isShizukuRunning by mutableStateOf(false)
         private set
-
     var isShizukuPermissionGranted by mutableStateOf(false)
         private set
-
     var isShizukuInstalled by mutableStateOf(false)
         private set
-
     var isAccessibilityEnabled by mutableStateOf(false)
         private set
-
+    var isServiceInRegularMode by mutableStateOf(true)
+        private set
     var showPermissionSetupGuide by mutableStateOf(false)
         private set
-
     var currentSetupStep by mutableStateOf(PermissionSetupStep.OVERLAY)
         private set
-
     var deepLinkHistoryId by mutableStateOf<String?>(null)
-
-    var launchCount by mutableStateOf(0)
+    var launchCount by androidx.compose.runtime.mutableIntStateOf(0)
         private set
 
-    /** 是否满足当前模式下的所有必需权限 */
+    private val _requestMediaProjection = MutableSharedFlow<Boolean>()
+    val requestMediaProjection = _requestMediaProjection.asSharedFlow()
+    val inAppNotifications = container.appNotificationManager.notifications
+
     val isAllPermissionsReady: Boolean
         get() {
             val mode = permissions.captureMode
-            return isOverlayPermissionGranted && when {
-                permissions.captureMode == CaptureMode.TEXT_ONLY || mode == CaptureMode.ACCESSIBILITY -> isAccessibilityEnabled
-                mode == CaptureMode.SHIZUKU -> isShizukuPermissionGranted && isShizukuRunning
+            return isOverlayPermissionGranted && when (mode) {
+                CaptureMode.TEXT_ONLY -> isAccessibilityEnabled
+                CaptureMode.SHIZUKU -> isShizukuPermissionGranted && isShizukuRunning
                 else -> true
             }
         }
 
-    /** 全局通用弹窗状态 */
-    var globalDialogState by mutableStateOf<GlobalDialogData?>(null)
-        private set
+    // endregion
 
-    fun showGlobalDialog(data: GlobalDialogData) {
-        globalDialogState = data
-    }
-
-    fun showFeedbackDialog(title: String, message: String, icon: ImageVector? = null) {
-        showGlobalDialog(
-            GlobalDialogData(
-                title = title,
-                message = message,
-                confirmText = "确定",
-                icon = icon
-            )
-        )
-    }
-
-    fun dismissGlobalDialog() {
-        globalDialogState = null
-    }
-
-    fun consumeDeepLink(): String? {
-        val id = deepLinkHistoryId
-        deepLinkHistoryId = null
-        return id
-    }
-
-    val inAppNotifications =
-        (application as SolveXApplication).container.appNotificationManager.notifications
-
-    private val _requestMediaProjection = MutableSharedFlow<Unit>()
-    val requestMediaProjection = _requestMediaProjection.asSharedFlow()
+    // region 初始化与生命周期
 
     init {
+        (application as SolveXApplication).viewModel = this
+        
+        // 监听后台服务状态
         viewModelScope.launch {
             MainService.isRunning.collect { running ->
                 isServiceRunning = running
-                if (running) {
-                    if (activeModeId == null) {
-                        repository.appConfigFlow.first().let { activeModeId = it.selectedModeId }
-                    }
-                } else {
-                    activeModeId = null
-                }
+                activeModeId = if (running) UniversalMode.id else null
             }
         }
 
+        viewModelScope.launch {
+            MainService.isRegularMode.collect { regular ->
+                isServiceInRegularMode = regular
+            }
+        }
+
+        // 监听服务异常上报
         viewModelScope.launch {
             MainService.serviceError.collect { error ->
                 showGlobalDialog(
@@ -232,6 +186,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
+        // 加载 DataStore 配置
         viewModelScope.launch {
             repository.appConfigFlow.collect { config ->
                 if (config.providers.isEmpty() && config.assistants.isEmpty()) {
@@ -246,75 +201,66 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     } else {
                         config.selectedEngine
                     }
-                    selectedModeId = config.selectedModeId
-                    currentModeConfig = config.currentModeConfig()
-                    allModeConfigs = config.modeConfigs
+                    currentModeConfig = config.modeConfig
                     defaultProviderId = config.defaultProviderId
                     autoScrollContent = config.autoScrollContent
+                    webSearchSettings = config.webSearch
+                    
+                    if (trustAllCertificates != config.trustAllCertificates) {
+                        trustAllCertificates = config.trustAllCertificates
+                        container.refreshNetworkStack(trustAllCertificates)
+                    }
                     checkPermissions()
                 }
             }
         }
 
-        // 启动计数
+        // 更新启动计数
         viewModelScope.launch {
             launchCount = repository.launchCountFlow.first()
             repository.incrementLaunchCount()
         }
     }
 
-    private val binderReceivedListener = Shizuku.OnBinderReceivedListener {
-        isShizukuRunning = true
-        checkPermissions()
-    }
-    private val binderDeadListener = Shizuku.OnBinderDeadListener {
-        isShizukuRunning = false
-        isShizukuPermissionGranted = false
-    }
-    private val requestPermissionResultListener = Shizuku.OnRequestPermissionResultListener { _, grantResult ->
-        val granted = grantResult == android.content.pm.PackageManager.PERMISSION_GRANTED
-        isShizukuPermissionGranted = granted
-        if (granted) {
-            // Shizuku 授权成功后自动提权：授予 WRITE_SECURE_SETTINGS 并启用无障碍服务
-            viewModelScope.launch {
-                val ctx = getApplication<Application>()
-                AdbCommandHelper.grantWriteSecureSettings(ctx)
-                AdbCommandHelper.enableAccessibilityService(ctx)
-                // 延迟后刷新权限状态，确保 settings 命令生效
-                delay(1000)
-                checkPermissions()
-            }
-        }
+    override fun onCleared() {
+        super.onCleared()
+        (getApplication<Application>() as SolveXApplication).viewModel = null
     }
 
-    fun registerShizukuListeners() {
-        // 先移除再添加，防止 Activity 重建导致的重复注册
-        Shizuku.removeBinderReceivedListener(binderReceivedListener)
-        Shizuku.removeBinderDeadListener(binderDeadListener)
-        Shizuku.removeRequestPermissionResultListener(requestPermissionResultListener)
-        Shizuku.addBinderReceivedListener(binderReceivedListener)
-        Shizuku.addBinderDeadListener(binderDeadListener)
-        Shizuku.addRequestPermissionResultListener(requestPermissionResultListener)
-        isShizukuRunning = Shizuku.pingBinder()
-        if (isShizukuRunning) {
-            isShizukuPermissionGranted = Shizuku.checkSelfPermission() == android.content.pm.PackageManager.PERMISSION_GRANTED
-        }
+    // endregion
+
+    // region 公开工具方法
+
+    fun showGlobalDialog(data: GlobalDialogData) {
+        globalDialogState = data
     }
 
-    fun unregisterShizukuListeners() {
-        Shizuku.removeBinderReceivedListener(binderReceivedListener)
-        Shizuku.removeBinderDeadListener(binderDeadListener)
-        Shizuku.removeRequestPermissionResultListener(requestPermissionResultListener)
+    fun showFeedbackDialog(title: String, message: String, icon: ImageVector? = null) {
+        showGlobalDialog(GlobalDialogData(title, message, icon = icon))
     }
 
+    fun dismissGlobalDialog() {
+        globalDialogState = null
+    }
+
+    fun consumeDeepLink(): String? {
+        val id = deepLinkHistoryId
+        deepLinkHistoryId = null
+        return id
+    }
+
+    fun dismissInAppNotification(id: String) {
+        container.appNotificationManager.dismiss(id)
+    }
+
+    // endregion
+
+    // region 数据持久化
 
     private fun save() {
         pendingSaveJob?.cancel()
         pendingSaveJob = viewModelScope.launch {
             delay(300)
-            val finalModeConfigs = allModeConfigs.toMutableMap().apply {
-                put(selectedModeId, currentModeConfig)
-            }
             repository.saveAppConfig(
                 AppConfig(
                     providers = providers,
@@ -323,559 +269,287 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     defaultProviderId = defaultProviderId,
                     selectedAssistantId = selectedAssistantId,
                     selectedEngine = selectedEngine,
-                    selectedModeId = selectedModeId,
-                    modeConfigs = finalModeConfigs,
-                    autoScrollContent = autoScrollContent
+                    modeConfig = currentModeConfig,
+                    autoScrollContent = autoScrollContent,
+                    webSearch = webSearchSettings,
+                    trustAllCertificates = trustAllCertificates
                 )
             )
         }
     }
 
-    /**
-     * 移除应用内通知。
-     */
-    fun dismissInAppNotification(id: String) {
-        (getApplication<Application>() as SolveXApplication).container.appNotificationManager.dismiss(
-            id
-        )
-    }
+    // endregion
 
-    fun addProvider(provider: ModelProvider) {
-        providers += provider
-        save()
-    }
+    // region 配置项管理
 
-    fun updateProvider(provider: ModelProvider) {
-        providers = providers.map { if (it.id == provider.id) provider else it }
-        save()
-    }
+    fun addProvider(p: ModelProvider) { providers += p; save() }
+    fun updateProvider(p: ModelProvider) { providers = providers.map { if (it.id == p.id) p else it }; save() }
+    fun updateProviders(l: List<ModelProvider>) { providers = l; save() }
+    fun deleteProvider(id: String) { providers = providers.filter { it.id != id }; save() }
 
-    fun updateProviders(newList: List<ModelProvider>) {
-        providers = newList
-        save()
-    }
+    fun addAssistant(a: AssistantConfig) { assistants += a; save() }
+    fun updateAssistant(a: AssistantConfig) { assistants = assistants.map { if (it.id == a.id) a else it }; save() }
+    fun updateAssistants(l: List<AssistantConfig>) { assistants = l; save() }
+    fun setAssistant(id: String?) { selectedAssistantId = id; save() }
+    fun deleteAssistant(id: String) { assistants = assistants.filter { it.id != id }; save() }
 
-    fun deleteProvider(id: String) {
-        providers = providers.filter { it.id != id }
-        save()
-    }
-
-    fun addAssistant(assistant: AssistantConfig) {
-        assistants = assistants + assistant
-        save()
-    }
-
-    fun updateAssistant(assistant: AssistantConfig) {
-        assistants = assistants.map { if (it.id == assistant.id) assistant else it }
-        save()
-    }
-
-    fun updateAssistants(newList: List<AssistantConfig>) {
-        assistants = newList
-        save()
-    }
-
-    fun setAssistant(id: String?) {
-        selectedAssistantId = id
-        save()
-    }
-
+    fun updateModeConfig(id: String, c: ModeConfig) { currentModeConfig = c; save() }
+    fun setMode(id: String) {}
+    
     fun setEngine(engine: EngineType) {
-        // 屏幕取字模式下锁定为文本引擎
         if (permissions.captureMode == CaptureMode.TEXT_ONLY && engine != EngineType.TEXT_ENGINE) return
         selectedEngine = engine
         save()
     }
+    fun updatePermissions(p: PermissionSettings) { permissions = p; save(); checkPermissions() }
+    fun updateAutoScrollContent(e: Boolean) { autoScrollContent = e; save() }
+    fun updateWebSearchSettings(s: com.tianhuiu.solvex.data.models.WebSearchSettings) { webSearchSettings = s; save() }
+    fun updateTrustAllCertificates(t: Boolean) { trustAllCertificates = t; container.refreshNetworkStack(t); save() }
+    fun updateDefaultProviderId(id: String?) { defaultProviderId = id; save() }
+    fun updateBallAppearance(a: FloatingBallAppearance) { permissions = permissions.copy(appearance = a); save() }
+    fun updateShowStopConfirmationDialog(s: Boolean) { showStopConfirmationDialog = s }
 
-    fun setMode(modeId: String) {
-        selectedModeId = modeId
-        currentModeConfig = allModeConfigs[modeId] ?: ModeRegistry.get(modeId).defaultConfig()
-        save()
-    }
+    fun addSearchProvider(p: com.tianhuiu.solvex.data.models.SearchProviderConfig) { webSearchSettings = webSearchSettings.copy(providers = webSearchSettings.providers + p); save() }
+    fun updateSearchProvider(p: com.tianhuiu.solvex.data.models.SearchProviderConfig) { webSearchSettings = webSearchSettings.copy(providers = webSearchSettings.providers.map { if (it.id == p.id) p else it }); save() }
+    fun updateSearchProviders(l: List<com.tianhuiu.solvex.data.models.SearchProviderConfig>) { webSearchSettings = webSearchSettings.copy(providers = l); save() }
+    fun deleteSearchProvider(id: String) { webSearchSettings = webSearchSettings.copy(providers = webSearchSettings.providers.filter { it.id != id }, selectedProviderId = if (webSearchSettings.selectedProviderId == id) null else webSearchSettings.selectedProviderId); save() }
+    fun updateSelectedSearchProvider(id: String?) { webSearchSettings = webSearchSettings.copy(selectedProviderId = id); save() }
 
-    fun deleteAssistant(id: String) {
-        assistants = assistants.filter { it.id != id }
-        save()
-    }
+    // endregion
 
-    fun updatePermissions(newPermissions: PermissionSettings) {
-        permissions = newPermissions
-        save()
-        checkPermissions()
-    }
-
-    fun updateModeConfig(modeId: String, config: ModeConfig) {
-        allModeConfigs = allModeConfigs.toMutableMap().apply {
-            put(modeId, config)
-        }
-        if (modeId == selectedModeId) {
-            currentModeConfig = config
-        }
-        save()
-    }
-
-    fun updateDefaultProviderId(id: String?) {
-        defaultProviderId = id
-        save()
-    }
-
-    fun updateAutoScrollContent(enabled: Boolean) {
-        autoScrollContent = enabled
-        save()
-    }
-
-    fun updateBallSize(fullSizeDp: Float) {
-        permissions = permissions.copy(ballFullSizeDp = fullSizeDp)
-        save()
-    }
+    // region 导入导出逻辑
 
     fun exportConfig(
-        selectedProviders: List<ModelProvider> = providers,
-        selectedAssistants: List<AssistantConfig> = assistants,
-        includeApiKeyMap: Map<String, Boolean> = emptyMap()
+        sp: List<ModelProvider> = providers,
+        sa: List<AssistantConfig> = assistants,
+        m: Map<String, Boolean> = emptyMap(),
+        ss: List<com.tianhuiu.solvex.data.models.SearchProviderConfig> = webSearchSettings.providers,
+        sm: Map<String, Boolean> = emptyMap(),
+        includePermissions: Boolean = true
     ): String {
-        val filteredProviders = selectedProviders.map { provider ->
-            if (includeApiKeyMap[provider.id] == true) {
-                provider
-            } else {
-                provider.copy(apiKey = "")
-            }
-        }
-        return json.encodeToString(ExportData(filteredProviders, selectedAssistants))
-    }
-
-    fun decodeImportConfig(jsonStr: String): ExportData? {
-        return try {
-            json.decodeFromString<ExportData>(jsonStr)
-        } catch (e: Exception) {
-            e.printStackTrace()
-            null
-        }
-    }
-
-    fun importConfig(data: ExportData) {
-        try {
-            // 合并提供商：按名称匹配，若存在则更新内容但保留原 ID
-            providers = mergeLists(providers, data.providers, { it.name }) { current, imported ->
-                imported.copy(id = current.id)
-            }
-            // 合并助手：按名称匹配，若存在则更新内容但保留原 ID
-            assistants = mergeLists(assistants, data.assistants, { it.name }) { current, imported ->
-                imported.copy(id = current.id)
-            }
-            save()
-        } catch (e: Exception) {
-            SystemUtils.showFeedback(
-                getApplication(),
-                userMessage = "导入失败",
-                detailedLog = "Config import failed",
-                throwable = e
+        val fp = sp.map { if (m[it.id] == true) it else it.copy(apiKey = "") }
+        val fs = ss.map { if (sm[it.id] == true) it else it.copy(apiKey = "") }
+        return json.encodeToString(
+            ExportData.serializer(),
+            ExportData(
+                providers = fp,
+                assistants = sa,
+                webSearch = if (fs.isNotEmpty()) webSearchSettings.copy(providers = fs) else null,
+                permissions = if (includePermissions) permissions else null
             )
-        }
+        )
+    }
+    fun decodeImportConfig(s: String): ExportData? = try { json.decodeFromString(ExportData.serializer(), s) } catch (e: Exception) { null }
+    fun importConfig(d: ExportData) {
+        providers = mergeLists(providers, d.providers, { it.name }) { c, i -> i.copy(id = c.id) }
+        assistants = mergeLists(assistants, d.assistants, { it.name }) { c, i -> i.copy(id = c.id) }
+        d.webSearch?.let { webSearchSettings = it }
+        d.permissions?.let { permissions = it }
+        save()
+    }
+    private fun <T> mergeLists(cl: List<T>, il: List<T>, ns: (T) -> String, merger: (T, T) -> T): List<T> {
+        val nl = cl.toMutableList()
+        il.forEach { i -> val idx = nl.indexOfFirst { ns(it) == ns(i) }; if (idx != -1) nl[idx] = merger(nl[idx], i) else nl.add(i) }
+        return nl
     }
 
-    private fun <T> mergeLists(
-        currentList: List<T>,
-        importedList: List<T>,
-        nameSelector: (T) -> String,
-        merger: (T, T) -> T
-    ): List<T> {
-        val newList = currentList.toMutableList()
-        importedList.forEach { imported ->
-            val index = newList.indexOfFirst { nameSelector(it) == nameSelector(imported) }
-            if (index != -1) {
-                newList[index] = merger(newList[index], imported)
-            } else {
-                newList.add(imported)
-            }
-        }
-        return newList
-    }
+    // endregion
 
-    /** 连通性测试状态 */
+    // region 连通性测试逻辑
+
     var connectivityTestStates by mutableStateOf<Map<String, ConnectivityTestState>>(emptyMap())
         private set
 
-    /**
-     * 测试提供商连通性。
-     */
-    suspend fun testConnectivity(provider: ModelProvider): ConnectivityTestState {
-        connectivityTestStates =
-            connectivityTestStates + (provider.id to ConnectivityTestState.Testing)
+    suspend fun testSearchConnectivity(p: com.tianhuiu.solvex.data.models.SearchProviderConfig): ConnectivityTestState {
+        connectivityTestStates = connectivityTestStates + (p.id to ConnectivityTestState.Testing)
         return try {
-            val models = llmClient.fetchModels(provider)
-            val result = if (models.isNotEmpty())
-                ConnectivityTestState.Success(models.size)
-            else
-                ConnectivityTestState.Failure("无可用模型")
-            connectivityTestStates = connectivityTestStates + (provider.id to result)
-            result
+            val res = com.tianhuiu.solvex.network.search.SearchOrchestrator(client, json).validate(p)
+            val st = if (res.errorCode == 0) {
+                showFeedbackDialog("验证通过", "${p.name}: 接口连通正常", Icons.Default.CheckCircle)
+                ConnectivityTestState.Success(0)
+            } else {
+                showFeedbackDialog("验证失败", "${p.name}: ${res.errorMessage ?: "接口返回异常"}", Icons.Default.Error)
+                ConnectivityTestState.Failure(res.errorMessage ?: "验证失败")
+            }
+            connectivityTestStates = connectivityTestStates + (p.id to st); st
         } catch (e: Exception) {
-            val result = ConnectivityTestState.Failure(e.message ?: "连接失败")
-            connectivityTestStates = connectivityTestStates + (provider.id to result)
-            result
+            val st = ConnectivityTestState.Failure(e.message ?: "连接失败")
+            showFeedbackDialog("连接失败", "${p.name}: ${e.message}", Icons.Default.Error)
+            connectivityTestStates = connectivityTestStates + (p.id to st); st
         }
     }
 
-    /**
-     * 获取模型列表（绕过已保存状态）。
-     */
-    suspend fun fetchModelsForProvider(provider: ModelProvider): List<String> {
+    suspend fun testConnectivity(p: ModelProvider): ConnectivityTestState {
+        connectivityTestStates = connectivityTestStates + (p.id to ConnectivityTestState.Testing)
         return try {
-            val models = llmClient.fetchModels(provider)
-            if (models.isNotEmpty() && providers.any { it.id == provider.id }) {
-                updateProvider(provider.copy(availableModels = models))
+            val m = llmClient.fetchModels(p)
+            val res = if (m.isNotEmpty()) {
+                if (providers.any { it.id == p.id }) updateProvider(p.copy(availableModels = m))
+                ConnectivityTestState.Success(m.size)
+            } else {
+                ConnectivityTestState.Failure("无可用模型")
             }
-            models
-        } catch (_: Exception) {
-            emptyList()
+            connectivityTestStates = connectivityTestStates + (p.id to res); res
+        } catch (e: Exception) {
+            val res = ConnectivityTestState.Failure(e.message ?: "连接失败")
+            connectivityTestStates = connectivityTestStates + (p.id to res); res
         }
     }
 
-    suspend fun fetchModelsDirect(providerId: String): List<String> {
-        val provider = providers.find { it.id == providerId } ?: return emptyList()
-        return try {
-            val models = llmClient.fetchModels(provider)
-            if (models.isNotEmpty()) {
-                updateProvider(provider.copy(availableModels = models))
-            }
-            models
-        } catch (_: Exception) {
-            emptyList()
-        }
-    }
+    suspend fun fetchModelsForProvider(p: ModelProvider): List<String> = try { val m = llmClient.fetchModels(p); if (m.isNotEmpty() && providers.any { it.id == p.id }) updateProvider(p.copy(availableModels = m)); m } catch (_: Exception) { emptyList() }
+    suspend fun fetchModelsDirect(id: String): List<String> { val p = providers.find { it.id == id } ?: return emptyList(); return try { val m = llmClient.fetchModels(p); if (m.isNotEmpty()) updateProvider(p.copy(availableModels = m)); m } catch (_: Exception) { emptyList() } }
+
+    // endregion
+
+    // region 权限管理详细逻辑
 
     fun checkPermissions() {
-        val context = getApplication<Application>()
-        isOverlayPermissionGranted = Settings.canDrawOverlays(context)
-        isNotificationPermissionGranted =
-            NotificationManagerCompat.from(context).areNotificationsEnabled()
-
-        // Shizuku 状态
-        isShizukuInstalled = isShizukuPackageInstalled()
+        val ctx = getApplication<Application>()
+        isOverlayPermissionGranted = Settings.canDrawOverlays(ctx)
+        isNotificationPermissionGranted = NotificationManagerCompat.from(ctx).areNotificationsEnabled()
+        isShizukuInstalled = try { ctx.packageManager.getPackageInfo("moe.shizuku.privileged.api", 0); true } catch (_: Exception) { try { ctx.packageManager.getPackageInfo("dev.rikka.shizuku", 0); true } catch (_: Exception) { false } }
         isShizukuRunning = if (isShizukuInstalled) Shizuku.pingBinder() else false
-        isShizukuPermissionGranted = if (isShizukuRunning) {
-            Shizuku.checkSelfPermission() == android.content.pm.PackageManager.PERMISSION_GRANTED
-        } else false
-
-        // 无障碍状态
-        isAccessibilityEnabled = SystemUtils.isAccessibilityServiceEnabled(context, SolveXAccessibilityService::class.java)
-
-        val notificationManager =
-            (context as SolveXApplication).container.appNotificationManager
-
-        // 判断当前截屏模式下是否已就绪（必需权限全部满足）
+        isShizukuPermissionGranted = if (isShizukuRunning) { Shizuku.checkSelfPermission() == android.content.pm.PackageManager.PERMISSION_GRANTED } else false
+        isAccessibilityEnabled = SystemUtils.isAccessibilityServiceEnabled(ctx, SolveXAccessibilityService::class.java)
         val mode = permissions.captureMode
-        val isReady = isOverlayPermissionGranted && when {
-            permissions.captureMode == CaptureMode.TEXT_ONLY || mode == CaptureMode.ACCESSIBILITY -> isAccessibilityEnabled
-            mode == CaptureMode.SHIZUKU -> isShizukuPermissionGranted && isShizukuRunning
-            else -> true
+        val isReady = isOverlayPermissionGranted && when (mode) {
+            CaptureMode.TEXT_ONLY -> isAccessibilityEnabled
+            CaptureMode.SHIZUKU -> isShizukuPermissionGranted && isShizukuRunning
+            else -> true 
         }
-
-        notificationManager.syncAll(
-            isServiceRunning = isServiceRunning,
-            isReady = isReady && !isServiceRunning,
-            launchCount = launchCount,
-        )
-
-        // 始终检查权限引导需求（根据截屏模式决定哪些权限是必需的）
+        container.appNotificationManager.syncAll(isServiceRunning, isReady && !isServiceRunning, launchCount)
         checkAndStartPermissionSetup()
+        if (isServiceRunning && !isReady) stopService()
     }
 
-    fun requestOverlayPermission() {
-        val intent = Intent(
-            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-            "package:${getApplication<Application>().packageName}".toUri()
-        ).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        getApplication<Application>().startActivity(intent)
-    }
-
-    fun requestNotificationPermission() {
-        val context = getApplication<Application>()
-        val intent =
-            Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
-                putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
-            }
-                .apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        context.startActivity(intent)
-    }
-
-    fun requestAccessibilityPermission() {
-        val context = getApplication<Application>()
-        val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        context.startActivity(intent)
-    }
-
-    /**
-     * 请求 Shizuku 权限（弹出 Shizuku 授权对话框）。
-     */
-    fun requestShizukuPermission() {
-        if (isShizukuRunning && !isShizukuPermissionGranted) {
-            Shizuku.requestPermission(0)
-        }
-    }
-
-    /**
-     * 检查 Shizuku 应用是否已安装。
-     */
     private fun isShizukuPackageInstalled(): Boolean {
-        return try {
-            val context = getApplication<Application>()
-            context.packageManager.getPackageInfo("moe.shizuku.privileged.api", 0)
-            true
-        } catch (_: Exception) {
-            try {
-                val context = getApplication<Application>()
-                context.packageManager.getPackageInfo("dev.rikka.shizuku", 0)
-                true
-            } catch (_: Exception) {
-                false
-            }
-        }
+        return try { getApplication<Application>().packageManager.getPackageInfo("moe.shizuku.privileged.api", 0); true } catch (_: Exception) { try { getApplication<Application>().packageManager.getPackageInfo("dev.rikka.shizuku", 0); true } catch (_: Exception) { false } }
     }
 
-    /**
-     * 启动后台核心服务。根据截屏模式分发：
-     * - SYSTEM: 触发 MediaProjection 权限弹窗
-     * - SHIZUKU: 检查 Shizuku 权限后直接启动
-     * - ACCESSIBILITY: 检查无障碍服务后直接启动
-     */
-    fun startService() {
+    fun requestOverlayPermission() { getApplication<Application>().startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, "package:${getApplication<Application>().packageName}".toUri()).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }) }
+    fun requestNotificationPermission() { getApplication<Application>().startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply { putExtra(Settings.EXTRA_APP_PACKAGE, getApplication<Application>().packageName); addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }) }
+    fun requestAccessibilityPermission() { getApplication<Application>().startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }); viewModelScope.launch { delay(500); checkPermissions() } }
+    fun delayedPermissionCheck() { viewModelScope.launch { delay(800); checkPermissions() } }
+    fun requestShizukuPermission() { if (isShizukuRunning && !isShizukuPermissionGranted) Shizuku.requestPermission(0) }
+
+    private val brL = Shizuku.OnBinderReceivedListener { isShizukuRunning = true; checkPermissions() }
+    private val bdL = Shizuku.OnBinderDeadListener { isShizukuRunning = false; isShizukuPermissionGranted = false }
+    private val rpL = Shizuku.OnRequestPermissionResultListener { _, gr -> if (gr == android.content.pm.PackageManager.PERMISSION_GRANTED) { isShizukuPermissionGranted = true; viewModelScope.launch { val c = getApplication<Application>(); AdbCommandHelper.grantWriteSecureSettings(c); AdbCommandHelper.enableAccessibilityService(c); delay(1000); checkPermissions() } } }
+
+    fun registerShizukuListeners() {
+        Shizuku.removeBinderReceivedListener(brL); Shizuku.removeBinderDeadListener(bdL); Shizuku.removeRequestPermissionResultListener(rpL)
+        Shizuku.addBinderReceivedListener(brL); Shizuku.addBinderDeadListener(bdL); Shizuku.addRequestPermissionResultListener(rpL)
+        isShizukuRunning = Shizuku.pingBinder()
+        if (isShizukuRunning) isShizukuPermissionGranted = Shizuku.checkSelfPermission() == android.content.pm.PackageManager.PERMISSION_GRANTED
+    }
+    fun unregisterShizukuListeners() {
+        Shizuku.removeBinderReceivedListener(brL); Shizuku.removeBinderDeadListener(bdL); Shizuku.removeRequestPermissionResultListener(rpL)
+    }
+
+    fun startService(isQuick: Boolean = false) {
         if (!isOverlayPermissionGranted) return
+        
+        // 更新当前配置中的裁剪模式以匹配启动意图
+        val currentCrop = currentModeConfig.enableCrop ?: UniversalMode.shouldCrop
+        if (isQuick && currentCrop) {
+            updateModeConfig(UniversalMode.id, currentModeConfig.copy(enableCrop = false))
+        } else if (!isQuick && !currentCrop) {
+            updateModeConfig(UniversalMode.id, currentModeConfig.copy(enableCrop = true))
+        }
 
         when (permissions.captureMode) {
-            CaptureMode.SYSTEM -> {
-                // 触发 MediaProjection 权限弹窗，结果通过 startMainService 回调
-                viewModelScope.launch { _requestMediaProjection.emit(Unit) }
-            }
-
-            CaptureMode.SHIZUKU -> {
-                if (!isShizukuPermissionGranted) return
-                startMainService(resultCode = 0, projectionData = null)
-            }
-
-            CaptureMode.ACCESSIBILITY, CaptureMode.TEXT_ONLY -> {
-                if (!isAccessibilityEnabled) return
-                startMainService(resultCode = 0, projectionData = null)
-            }
+            CaptureMode.SYSTEM -> viewModelScope.launch { _requestMediaProjection.emit(isQuick) }
+            CaptureMode.SHIZUKU -> if (isShizukuPermissionGranted) startMainService(0, null, isQuick)
+            CaptureMode.TEXT_ONLY -> if (isAccessibilityEnabled) startMainService(0, null, isQuick)
         }
     }
-
-    fun startMainService(resultCode: Int, projectionData: Intent?) {
-        activeModeId = selectedModeId
-        val context = getApplication<Application>()
-        val intent = Intent(context, MainService::class.java).apply {
+    fun startMainService(rc: Int, pd: Intent?, isQuick: Boolean = false) {
+        activeModeId = UniversalMode.id
+        val ctx = getApplication<Application>()
+        val intent = Intent(ctx, MainService::class.java).apply { 
             action = MainService.ACTION_START
-            putExtra(MainService.EXTRA_RESULT_CODE, resultCode)
-            projectionData?.let { putExtra(MainService.EXTRA_PROJECTION_DATA, it) }
+            putExtra(MainService.EXTRA_RESULT_CODE, rc)
+            pd?.let { putExtra(MainService.EXTRA_PROJECTION_DATA, it) }
             putExtra(MainService.EXTRA_CAPTURE_MODE, permissions.captureMode)
+            putExtra(MainService.EXTRA_IS_QUICK_START, isQuick)
         }
-        context.startForegroundService(intent)
-        checkPermissions()
+        ctx.startForegroundService(intent); checkPermissions()
     }
-
     fun stopService() {
-        val context = getApplication<Application>()
-        val intent = Intent(context, MainService::class.java).apply {
-            action = MainService.ACTION_STOP
-        }
-        context.stopService(intent)
-        activeModeId = null
-        showStopConfirmationDialog = false
-        checkPermissions()
+        val intent = Intent(getApplication(), MainService::class.java).apply { action = MainService.ACTION_STOP }
+        getApplication<Application>().stopService(intent); activeModeId = null; showStopConfirmationDialog = false; checkPermissions()
     }
 
-    fun updateShowStopConfirmationDialog(show: Boolean) {
-        showStopConfirmationDialog = show
-    }
+    // endregion
+
+    // region 业务逻辑与引导流程
 
     fun resetToDefault() {
-        providers = listOf(
-            ModelProvider(
-                UUID.randomUUID().toString(),
-                ProviderKind.OPENAI_COMPATIBLE,
-                "OpenAI",
-                "https://api.openai.com/v1",
-                "",
-                emptyList()
-            )
-        )
-        assistants = listOf(
-            AssistantConfig(
-                id = UUID.randomUUID().toString(),
-                name = "题目解答助手",
-                ocrPrompt = "你是一个精准的题目转录员。请直接原文输出图片中的题目文本和选项，严禁改写。如果是数学题，请使用 LaTeX 语法确保公式和符号渲染准确。",
-                textPrompt = "你是一个资深的解题专家。请对提取出的题目进行深度解析。\n\n输出要求：\n- 必须包含且仅包含以下三个模块：### 题目分析、### 解题步骤、### 最终答案\n- **公式优先**：强烈建议并优先使用专业 LaTeX 公式。解题过程用文字描述逻辑，将数学表达融入高质量公式中。",
-                visionPrompt = "你是一个拥有视觉感知能力的解题专家。请结合图片细节进行深度解析。\n\n输出要求：\n- 必须包含且仅包含以下三个模块：### 题目分析、### 解题步骤、### 最终答案\n- **公式优先**：强烈建议并优先使用专业 LaTeX 公式。解题过程用文字描述逻辑，将数学表达融入高质量公式中。"
-            ),
-            AssistantConfig(
-                id = UUID.randomUUID().toString(),
-                name = "聊天总结助手",
-                ocrPrompt = "你是一个高效的对话提取员。请按时间顺序提取截图中的聊天记录，包括发言人、时间（如果有）和消息内容，但是需要排除屏幕无关信息。请直接输出文本，不要使用任何 JSON 格式。",
-                textPrompt = "你是一个专业的内容分析师。请对提供的聊天记录进行精简总结，重点提取核心话题、主要观点、达成的共识以及待办事项。\n\n输出规范：\n- 使用 Markdown 三级标题（###）划分模块，例如：### 会话背景、### 核心讨论、### 结论摘要\n- 严禁按照题目解析的格式输出，请根据聊天内容的实际情况灵活调整模块标题，确保总结的高效性\n- 禁止输出 JSON、XML、YAML、表格或代码块包裹正文",
-                visionPrompt = "你是一个专业的内容分析师。请观察截图中的聊天界面，对对话内容进行精简总结，提取核心话题和关键结论。\n\n输出规范：\n- 使用 Markdown 三级标题（###）划分模块，例如：### 界面概览、### 对话要点、### 行动指南\n- 严禁按照题目解析的格式输出，请根据聊天内容的实际情况灵活调整模块标题\n- 禁止输出 JSON、XML、YAML、表格或代码块包裹正文",
-                useStructuredExtraction = false,
-            )
+        providers = listOf(ModelProvider(UUID.randomUUID().toString(), ProviderKind.OPENAI_COMPATIBLE, "OpenAI", "https://api.openai.com/v1", "", emptyList()))
+        assistants = listOf(AssistantConfig(UUID.randomUUID().toString(), "题目解答助手", "提取题目和选项原文。", "请给出详细解题步骤，并在结尾输出最终答案。", "请结合图片给出详细解题步骤，并在结尾输出最终答案。"))
+        selectedAssistantId = assistants.first().id
+        webSearchSettings = com.tianhuiu.solvex.data.models.WebSearchSettings(
+            enabled = false, 
+            providers = listOf(com.tianhuiu.solvex.data.models.SearchProviderConfig(UUID.randomUUID().toString(), "Tavily (推荐)", com.tianhuiu.solvex.data.models.SearchProviderKind.TAVILY, "https://api.tavily.com/search"))
         )
         permissions = PermissionSettings()
         save()
     }
 
-    fun getRelevantSteps(): List<PermissionSetupStep> {
-        val mode = permissions.captureMode
-        val relevant = mutableListOf<PermissionSetupStep>()
-
-        relevant.add(PermissionSetupStep.OVERLAY)
-        relevant.add(PermissionSetupStep.NOTIFICATION)
-        if (permissions.captureMode == CaptureMode.TEXT_ONLY || mode == CaptureMode.ACCESSIBILITY)
-            relevant.add(PermissionSetupStep.ACCESSIBILITY)
-        relevant.add(PermissionSetupStep.BATTERY)
-        if (mode == CaptureMode.SHIZUKU) relevant.add(PermissionSetupStep.SHIZUKU)
-
-        return relevant
-    }
-
-    /**
-     * 检查权限并决定是否显示引导卡片。
-     */
     fun checkAndStartPermissionSetup() {
-        val context = getApplication<Application>()
-        val pm = context.getSystemService(android.content.Context.POWER_SERVICE) as PowerManager
+        val pm = getApplication<Application>().getSystemService(android.content.Context.POWER_SERVICE) as PowerManager
         val mode = permissions.captureMode
-
-        // 检查当前截屏模式下是否所有必需权限均已满足
-        val requiredGranted = isOverlayPermissionGranted && when {
-            permissions.captureMode == CaptureMode.TEXT_ONLY || mode == CaptureMode.ACCESSIBILITY -> isAccessibilityEnabled
-            mode == CaptureMode.SHIZUKU -> isShizukuPermissionGranted && isShizukuRunning
+        val req = isOverlayPermissionGranted && when (mode) {
+            CaptureMode.TEXT_ONLY -> isAccessibilityEnabled
+            CaptureMode.SHIZUKU -> isShizukuPermissionGranted && isShizukuRunning
             else -> true
         }
-        val batteryOk = pm.isIgnoringBatteryOptimizations(context.packageName)
-
-        if (requiredGranted && batteryOk && isNotificationPermissionGranted) {
-            // 所有权限就绪，隐藏引导
-            showPermissionSetupGuide = false
-            if (!permissions.isFirstLaunchSetupComplete) {
-                updatePermissions(permissions.copy(isFirstLaunchSetupComplete = true))
-            }
-        } else {
-            // 存在缺失权限，显示引导并定位到第一个缺失项
-            showPermissionSetupGuide = true
-            advanceSetupToMissingStep()
-        }
+        if (req && pm.isIgnoringBatteryOptimizations(getApplication<Application>().packageName) && isNotificationPermissionGranted) {
+            showPermissionSetupGuide = false; if (!permissions.isFirstLaunchSetupComplete) updatePermissions(permissions.copy(isFirstLaunchSetupComplete = true))
+        } else { showPermissionSetupGuide = true; advanceSetupToMissingStep() }
     }
-
-    /**
-     * 按优先级定位第一个缺失权限步骤。
-     */
     fun advanceSetupToMissingStep() {
-        val context = getApplication<Application>()
-        val pm = context.getSystemService(android.content.Context.POWER_SERVICE) as PowerManager
         val mode = permissions.captureMode
-
         currentSetupStep = when {
-            // 必须：悬浮窗
             !isOverlayPermissionGranted -> PermissionSetupStep.OVERLAY
-            // 可选：通知
             !isNotificationPermissionGranted -> PermissionSetupStep.NOTIFICATION
-            // 屏幕取字模式或 ACCESSIBILITY 模式需要无障碍服务
-            (permissions.captureMode == CaptureMode.TEXT_ONLY || mode == CaptureMode.ACCESSIBILITY) && !isAccessibilityEnabled -> PermissionSetupStep.ACCESSIBILITY
-            // 必须：电池优化
-            !pm.isIgnoringBatteryOptimizations(context.packageName) -> PermissionSetupStep.BATTERY
-            // 仅 SHIZUKU 模式
+            mode == CaptureMode.TEXT_ONLY && !isAccessibilityEnabled -> PermissionSetupStep.ACCESSIBILITY
+            !(getApplication<Application>().getSystemService(android.content.Context.POWER_SERVICE) as PowerManager).isIgnoringBatteryOptimizations(getApplication<Application>().packageName) -> PermissionSetupStep.BATTERY
             mode == CaptureMode.SHIZUKU && (!isShizukuPermissionGranted || !isShizukuRunning) -> PermissionSetupStep.SHIZUKU
             else -> PermissionSetupStep.DONE
         }
-
-        if (currentSetupStep == PermissionSetupStep.DONE) {
-            finishPermissionSetup()
-        }
+        if (currentSetupStep == PermissionSetupStep.DONE) { showPermissionSetupGuide = false; if (!permissions.isFirstLaunchSetupComplete) updatePermissions(permissions.copy(isFirstLaunchSetupComplete = true)) }
     }
-
-    /**
-     * 处理当前引导步骤的操作（跳转对应设置页）。
-     */
-    fun handleSetupStepAction(step: PermissionSetupStep) {
-        when (step) {
+    fun handleSetupStepAction(s: PermissionSetupStep) {
+        when (s) {
             PermissionSetupStep.OVERLAY -> requestOverlayPermission()
             PermissionSetupStep.NOTIFICATION -> requestNotificationPermission()
             PermissionSetupStep.ACCESSIBILITY -> requestAccessibilityPermission()
-            PermissionSetupStep.BATTERY -> requestBatteryOptimizationPermission()
+            PermissionSetupStep.BATTERY -> getApplication<Application>().startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply { data = "package:${getApplication<Application>().packageName}".toUri(); addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) })
             PermissionSetupStep.SHIZUKU -> {
-                when {
-                    !isShizukuInstalled -> {
-                        // 跳转 Shizuku 下载页
-                        val intent = Intent(
-                            Intent.ACTION_VIEW,
-                            "https://github.com/RikkaApps/Shizuku/releases".toUri()
-                        ).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
-                        getApplication<Application>().startActivity(intent)
-                    }
-                    !isShizukuRunning -> {
-                        // 引导用户启动 Shizuku
-                        showGlobalDialog(
-                            GlobalDialogData(
-                                title = "启动 Shizuku",
-                                message = "请在 Shizuku 应用中启动服务，然后返回 SolveX 继续授权。",
-                                confirmText = "打开 Shizuku",
-                                onConfirm = {
-                                    val ctx = getApplication<Application>()
-                                    val launchIntent = ctx.packageManager
-                                        .getLaunchIntentForPackage("moe.shizuku.privileged.api")
-                                        ?: ctx.packageManager
-                                            .getLaunchIntentForPackage("dev.rikka.shizuku")
-                                    launchIntent?.apply {
-                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                        ctx.startActivity(this)
-                                    }
-                                }
-                            )
-                        )
-                    }
-                    else -> requestShizukuPermission()
-                }
+                val pkg = getApplication<Application>().packageManager
+                val isInst = try { pkg.getPackageInfo("moe.shizuku.privileged.api", 0); true } catch (_: Exception) { try { pkg.getPackageInfo("dev.rikka.shizuku", 0); true } catch (_: Exception) { false } }
+                if (!isInst) getApplication<Application>().startActivity(Intent(Intent.ACTION_VIEW, "https://github.com/RikkaApps/Shizuku/releases".toUri()).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) })
+                else if (!isShizukuRunning) (pkg.getLaunchIntentForPackage("moe.shizuku.privileged.api") ?: pkg.getLaunchIntentForPackage("dev.rikka.shizuku"))?.apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); getApplication<Application>().startActivity(this) }
+                else requestShizukuPermission()
             }
-            PermissionSetupStep.DONE -> finishPermissionSetup()
+            else -> {}
+        }
+    }
+    fun skipPermissionSetup() { showPermissionSetupGuide = false }
+    fun getRelevantSteps(): List<PermissionSetupStep> {
+        val mode = permissions.captureMode
+        return buildList {
+            add(PermissionSetupStep.OVERLAY); add(PermissionSetupStep.NOTIFICATION)
+            if (mode == CaptureMode.TEXT_ONLY) add(PermissionSetupStep.ACCESSIBILITY)
+            add(PermissionSetupStep.BATTERY)
+            if (mode == CaptureMode.SHIZUKU) add(PermissionSetupStep.SHIZUKU)
         }
     }
 
-    /**
-     * 跳转系统电池优化设置。
-     */
-    fun requestBatteryOptimizationPermission() {
-        val context = getApplication<Application>()
-        val intent =
-            Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                data = "package:${context.packageName}".toUri()
-            }
-                .apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
-        context.startActivity(intent)
-    }
-
-    /**
-     * 权限全部就绪时自动完成引导。
-     */
-    fun finishPermissionSetup() {
-        showPermissionSetupGuide = false
-        if (!permissions.isFirstLaunchSetupComplete) {
-            updatePermissions(permissions.copy(isFirstLaunchSetupComplete = true))
-        }
-    }
-
-    /**
-     * 手动关闭引导（下次 ON_RESUME 若权限仍缺失会重新显示）。
-     */
-    fun skipPermissionSetup() {
-        showPermissionSetupGuide = false
-    }
+    // endregion
 }
 
-/** 连通性测试状态 */
 sealed class ConnectivityTestState {
     data object Testing : ConnectivityTestState()
     data class Success(val modelCount: Int) : ConnectivityTestState()

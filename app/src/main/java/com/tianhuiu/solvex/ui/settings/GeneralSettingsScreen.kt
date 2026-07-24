@@ -4,7 +4,6 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -21,7 +20,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -70,10 +68,10 @@ fun GeneralSettingsScreen(
                 .padding(padding)
         ) {
             item {
-                SettingsGroup(title = "屏幕录制方式") {
+                SettingsGroup(title = "录制与取字方式") {
                     SettingsItem(
                         label = "系统屏幕录制",
-                        subLabel = "通过系统屏幕录制权限建立截图会话，每次启动需授权",
+                        subLabel = "通过系统录屏权限建立截图会话，兼容性最强",
                         icon = Icons.Default.PhoneAndroid,
                         trailing = {
                             RadioButton(
@@ -100,42 +98,8 @@ fun GeneralSettingsScreen(
                         }
                     )
                     SettingsItem(
-                        label = "无障碍截图",
-                        subLabel = "利用无障碍服务截取屏幕，一次授权后续静默截图",
-                        icon = Icons.Default.AccessibilityNew,
-                        trailing = {
-                            RadioButton(
-                                selected = viewModel.permissions.captureMode == CaptureMode.ACCESSIBILITY,
-                                onClick = {
-                                    if (viewModel.isServiceRunning) {
-                                        pendingMode = CaptureMode.ACCESSIBILITY
-                                    } else {
-                                        viewModel.updatePermissions(
-                                            viewModel.permissions.copy(
-                                                captureMode = CaptureMode.ACCESSIBILITY
-                                            )
-                                        )
-                                        if (!viewModel.isAccessibilityEnabled) {
-                                            showAccessibilityConfirm = true
-                                        }
-                                    }
-                                }
-                            )
-                        },
-                        onClick = {
-                            if (viewModel.isServiceRunning) {
-                                pendingMode = CaptureMode.ACCESSIBILITY
-                            } else {
-                                viewModel.updatePermissions(viewModel.permissions.copy(captureMode = CaptureMode.ACCESSIBILITY))
-                                if (!viewModel.isAccessibilityEnabled) {
-                                    showAccessibilityConfirm = true
-                                }
-                            }
-                        }
-                    )
-                    SettingsItem(
-                        label = "屏幕取字",
-                        subLabel = "框选屏幕区域提取屏幕内容，不截取屏幕图片，需要无障碍服务支持。",
+                        label = "无障碍取字",
+                        subLabel = "框选屏幕区域提取文本内容，不产生截图。利用无障碍服务能力实现。",
                         icon = Icons.Default.Description,
                         trailing = {
                             RadioButton(
@@ -169,7 +133,7 @@ fun GeneralSettingsScreen(
                     )
                     SettingsItem(
                         label = "Shizuku ADB",
-                        subLabel = "通过 Shizuku 授权后调用 ADB 截图，这种模式适合进阶用户使用。",
+                        subLabel = "通过 Shizuku 授权后调用高级系统接口截图，无需每次点击授权。",
                         icon = Icons.Default.Terminal,
                         trailing = {
                             RadioButton(
@@ -315,22 +279,6 @@ fun GeneralSettingsScreen(
                             )
                         }
                     )
-                    SettingsItem(
-                        label = "悬浮球大小",
-                        subLabel = "${viewModel.permissions.ballFullSizeDp.toInt()}dp（拖动滑块调整）",
-                        icon = Icons.Default.PhoneAndroid,
-                        trailing = {
-                            Slider(
-                                value = viewModel.permissions.ballFullSizeDp,
-                                onValueChange = { newValue ->
-                                    viewModel.updateBallSize(fullSizeDp = newValue)
-                                },
-                                valueRange = 24f..64f,
-                                steps = 19,
-                                modifier = Modifier.widthIn(max = 140.dp)
-                            )
-                        }
-                    )
                 }
             }
         }
@@ -344,7 +292,7 @@ fun GeneralSettingsScreen(
                 viewModel.requestAccessibilityPermission()
             },
             title = "授权无障碍服务",
-            message = "无障碍截图模式需要启用“SolveX 截屏助手”服务。点击确认将前往系统设置页，请在“已安装的服务”中找到并开启。",
+            message = "无障碍取字模式需要启用“SolveX 截屏助手”服务。点击确认将前往系统设置页，请在“已安装的服务”中找到并开启。",
             confirmText = "前往设置",
             dismissText = "取消",
             icon = Icons.Default.AccessibilityNew
@@ -385,22 +333,11 @@ fun GeneralSettingsScreen(
     if (pendingMode != null) {
         SolveXConfirmDialog(
             onDismissRequest = { pendingMode = null },
-            onConfirm = {
-                viewModel.stopService()
-                viewModel.updatePermissions(viewModel.permissions.copy(captureMode = pendingMode!!))
-                if (pendingMode == CaptureMode.SHIZUKU && !viewModel.isShizukuPermissionGranted) {
-                    viewModel.requestShizukuPermission()
-                }
-                if (pendingMode == CaptureMode.ACCESSIBILITY && !viewModel.isAccessibilityEnabled) {
-                    showAccessibilityConfirm = true
-                }
-                pendingMode = null
-            },
-            title = "需要停止服务",
-            message = "更改录制方式需要先停止当前运行的服务。是否停止服务并应用更改？",
-            confirmText = "停止并应用",
-            dismissText = "取消",
-            isDestructive = true,
+            onConfirm = { pendingMode = null },
+            title = "禁止切换方式",
+            message = "当前服务正在运行中，为保障系统稳定性，无法直接更改录制方式。请先返回首页手动点击“停止服务”，然后再进行方式切换。",
+            confirmText = "知道了",
+            dismissText = null,
             icon = Icons.Default.Warning
         )
     }

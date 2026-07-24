@@ -27,11 +27,13 @@ class MainActivity : ComponentActivity() {
     private val viewModel by viewModels<MainViewModel>()
     private val updateViewModel by viewModels<UpdateViewModel>()
 
+    private var pendingQuickStart = false
+
     private val projectionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
     ) { result ->
         if ((result.resultCode == RESULT_OK) && (result.data != null)) {
-            viewModel.startMainService(result.resultCode, result.data)
+            viewModel.startMainService(result.resultCode, result.data, pendingQuickStart)
         }
     }
 
@@ -47,7 +49,8 @@ class MainActivity : ComponentActivity() {
         handleDeepLink(intent)
 
         lifecycleScope.launch {
-            viewModel.requestMediaProjection.collect {
+            viewModel.requestMediaProjection.collect { isQuick ->
+                pendingQuickStart = isQuick
                 val manager =
                     getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
                 projectionLauncher.launch(manager.createScreenCaptureIntent())
@@ -66,7 +69,10 @@ class MainActivity : ComponentActivity() {
 
         lifecycle.addObserver(LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
+                viewModel.registerShizukuListeners()
                 viewModel.checkPermissions()
+            } else if (event == Lifecycle.Event.ON_PAUSE) {
+                viewModel.unregisterShizukuListeners()
             }
         })
 

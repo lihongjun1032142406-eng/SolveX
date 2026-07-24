@@ -49,7 +49,9 @@ fun TutorialScreen(onBack: () -> Unit) {
         "tutorial/01.md",
         "tutorial/02.md",
         "tutorial/03.md",
-        "tutorial/04.md"
+        "tutorial/04.md",
+        "tutorial/05.md",
+        "tutorial/06.md"
     )
 
     var currentPage by remember { mutableIntStateOf(0) }

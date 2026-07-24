@@ -24,12 +24,11 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.tianhuiu.solvex.data.models.DrawerSide
-import com.tianhuiu.solvex.mode.ModeRegistry
+import com.tianhuiu.solvex.mode.UniversalMode
 import com.tianhuiu.solvex.ui.MainViewModel
 import com.tianhuiu.solvex.ui.components.ModelSelectorItem
 import com.tianhuiu.solvex.ui.components.NumberStepper
@@ -40,17 +39,12 @@ import com.tianhuiu.solvex.ui.components.SettingsItem
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ModeSettingsScreen(
-    modeId: String,
     viewModel: MainViewModel,
     onBack: () -> Unit,
 ) {
-    // 确保 ViewModel 中的 selectedModeId 同步，否则更新配置会写错位置
-    LaunchedEffect(modeId) {
-        viewModel.setMode(modeId)
-    }
-
-    val mode = ModeRegistry.get(modeId)
-    val config = viewModel.allModeConfigs[modeId] ?: mode.defaultConfig()
+    // 模式已固定为通用模式
+    val mode = UniversalMode
+    val config = viewModel.currentModeConfig
 
     Scaffold(
         topBar = {
@@ -84,13 +78,13 @@ fun ModeSettingsScreen(
                         onFetchModels = { viewModel.fetchModelsDirect(it) },
                         onModelSelected = { pid, model ->
                             viewModel.updateModeConfig(
-                                modeId,
+                                UniversalMode.id,
                                 config.copy(ocrProviderId = pid, ocrModel = model)
                             )
                         },
                         defaultProviderId = viewModel.defaultProviderId,
                         badge = if (defaultUnset && config.ocrProviderId.isNullOrBlank()) {
-                            { SettingBadge(text = "未配置") }
+                            { SettingBadge(text = "去配置") }
                         } else null
                     )
                     ModelSelectorItem(
@@ -103,13 +97,13 @@ fun ModeSettingsScreen(
                         onFetchModels = { viewModel.fetchModelsDirect(it) },
                         onModelSelected = { pid, model ->
                             viewModel.updateModeConfig(
-                                modeId,
+                                UniversalMode.id,
                                 config.copy(textProviderId = pid, textModel = model)
                             )
                         },
                         defaultProviderId = viewModel.defaultProviderId,
                         badge = if (defaultUnset && config.textProviderId.isNullOrBlank()) {
-                            { SettingBadge(text = "未配置") }
+                            { SettingBadge(text = "去配置") }
                         } else null
                     )
                     ModelSelectorItem(
@@ -122,13 +116,13 @@ fun ModeSettingsScreen(
                         onFetchModels = { viewModel.fetchModelsDirect(it) },
                         onModelSelected = { pid, model ->
                             viewModel.updateModeConfig(
-                                modeId,
+                                UniversalMode.id,
                                 config.copy(visionProviderId = pid, visionModel = model)
                             )
                         },
                         defaultProviderId = viewModel.defaultProviderId,
                         badge = if (defaultUnset && config.visionProviderId.isNullOrBlank()) {
-                            { SettingBadge(text = "未配置") }
+                            { SettingBadge(text = "去配置") }
                         } else null
                     )
                 }
@@ -146,7 +140,7 @@ fun ModeSettingsScreen(
                                 step = 5,
                                 onValueChange = { seconds ->
                                     viewModel.updateModeConfig(
-                                        modeId,
+                                        UniversalMode.id,
                                         config.copy(firstDeltaTimeoutSeconds = seconds)
                                     )
                                 }
@@ -166,13 +160,13 @@ fun ModeSettingsScreen(
                         icon = Icons.Default.Notifications,
                         enabled = isNotificationEnabled,
                         onClick = {
-                            viewModel.updateModeConfig(modeId, config.copy(allowNotification = !config.allowNotification))
+                            viewModel.updateModeConfig(UniversalMode.id, config.copy(allowNotification = !config.allowNotification))
                         },
                         trailing = {
                             Switch(
                                 checked = config.allowNotification && isNotificationEnabled,
                                 onCheckedChange = {
-                                    viewModel.updateModeConfig(modeId, config.copy(allowNotification = it))
+                                    viewModel.updateModeConfig(UniversalMode.id, config.copy(allowNotification = it))
                                 },
                                 enabled = isNotificationEnabled
                             )
@@ -180,16 +174,16 @@ fun ModeSettingsScreen(
                     )
                     SettingsItem(
                         label = "自动弹出抽屉",
-                        subLabel = "开始解析后自动打开侧边抽屉实时展示结果",
+                        subLabel = if (config.autoOpenDrawer) "常规交互：自动弹出侧边抽屉实时展示 AI 思考过程" else "自动交互：保持界面简洁，仅在需要时手动打开结果",
                         icon = Icons.AutoMirrored.Filled.ViewSidebar,
                         onClick = {
-                            viewModel.updateModeConfig(modeId, config.copy(autoOpenDrawer = !config.autoOpenDrawer))
+                            viewModel.updateModeConfig(UniversalMode.id, config.copy(autoOpenDrawer = !config.autoOpenDrawer))
                         },
                         trailing = {
                             Switch(
                                 checked = config.autoOpenDrawer,
                                 onCheckedChange = {
-                                    viewModel.updateModeConfig(modeId, config.copy(autoOpenDrawer = it))
+                                    viewModel.updateModeConfig(UniversalMode.id, config.copy(autoOpenDrawer = it))
                                 }
                             )
                         }
@@ -205,7 +199,7 @@ fun ModeSettingsScreen(
                                     FilterChip(
                                         selected = config.drawerSide == side,
                                         onClick = {
-                                            viewModel.updateModeConfig(modeId, config.copy(drawerSide = side))
+                                            viewModel.updateModeConfig(UniversalMode.id, config.copy(drawerSide = side))
                                         },
                                         label = { Text(side.displayName) },
                                         modifier = Modifier.padding(start = 8.dp),
@@ -217,17 +211,17 @@ fun ModeSettingsScreen(
                     )
                     SettingsItem(
                         label = "启用截图裁剪",
-                        subLabel = if (config.enableCrop == true) "截图后手动框选目标区域" else "截图后直接全屏解析",
+                        subLabel = if (config.enableCrop == true) "常规模式：截图后手动框选区域，适合精确解析" else "自动模式：截图后直接全屏解析，适合快速扫一眼",
                         icon = Icons.Default.Crop,
                         onClick = {
                             val current = config.enableCrop ?: mode.shouldCrop
-                            viewModel.updateModeConfig(modeId, config.copy(enableCrop = !current))
+                            viewModel.updateModeConfig(UniversalMode.id, config.copy(enableCrop = !current))
                         },
                         trailing = {
                             Switch(
                                 checked = config.enableCrop ?: mode.shouldCrop,
                                 onCheckedChange = { enabled ->
-                                    viewModel.updateModeConfig(modeId, config.copy(enableCrop = enabled))
+                                    viewModel.updateModeConfig(UniversalMode.id, config.copy(enableCrop = enabled))
                                 }
                             )
                         }

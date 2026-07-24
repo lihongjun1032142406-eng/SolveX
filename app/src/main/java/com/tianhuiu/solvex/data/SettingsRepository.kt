@@ -27,6 +27,7 @@ class SettingsRepository(private val context: Context) {
     private val UPDATE_ETAG_KEY = stringPreferencesKey("update_etag")
     private val CACHED_VERSION_KEY = stringPreferencesKey("cached_version")
     private val CONSECUTIVE_NO_UPDATE_KEY = intPreferencesKey("consecutive_no_update")
+    private val LAST_UPDATE_DIALOG_DISMISSED_KEY = longPreferencesKey("last_update_dialog_dismissed")
 
     val appConfigFlow: Flow<AppConfig> = context.dataStore.data.map { preferences ->
         val jsonStr = preferences[APP_CONFIG_KEY]
@@ -59,6 +60,10 @@ class SettingsRepository(private val context: Context) {
 
     val consecutiveNoUpdateFlow: Flow<Int> = context.dataStore.data.map { preferences ->
         preferences[CONSECUTIVE_NO_UPDATE_KEY] ?: 0
+    }
+
+    val lastUpdateDialogDismissedFlow: Flow<Long> = context.dataStore.data.map { preferences ->
+        preferences[LAST_UPDATE_DIALOG_DISMISSED_KEY] ?: 0L
     }
 
     suspend fun incrementLaunchCount() {
@@ -103,6 +108,12 @@ class SettingsRepository(private val context: Context) {
     suspend fun saveConsecutiveNoUpdate(count: Int) {
         context.dataStore.edit { preferences ->
             preferences[CONSECUTIVE_NO_UPDATE_KEY] = count
+        }
+    }
+
+    suspend fun saveLastUpdateDialogDismissed(timestamp: Long) {
+        context.dataStore.edit { preferences ->
+            preferences[LAST_UPDATE_DIALOG_DISMISSED_KEY] = timestamp
         }
     }
 }

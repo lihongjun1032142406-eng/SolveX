@@ -66,9 +66,9 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.tianhuiu.solvex.data.models.CaptureMode
 import com.tianhuiu.solvex.data.models.EngineType
 import com.tianhuiu.solvex.data.models.PermissionSetupStep
-import com.tianhuiu.solvex.mode.ModeRegistry
 import com.tianhuiu.solvex.ui.MainViewModel
 import com.tianhuiu.solvex.ui.components.SolveXConfirmDialog
+import com.tianhuiu.solvex.ui.components.TooltipText
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -79,7 +79,7 @@ fun HomeScreen(
 ) {
     val surfaceColor = MaterialTheme.colorScheme.surface
     val lifecycleOwner = LocalLifecycleOwner.current
-    val inAppNotifications by viewModel.inAppNotifications.collectAsState(initial = emptyList())
+    val inAppNotifications by (viewModel.getApplication<com.tianhuiu.solvex.SolveXApplication>().container.appNotificationManager.notifications).collectAsState(initial = emptyList<com.tianhuiu.solvex.data.models.InAppNotification>())
 
     val sheetState = rememberModalBottomSheetState()
     var showAssistantSheet by remember { mutableStateOf(false) }
@@ -158,7 +158,7 @@ fun HomeScreen(
             item { Spacer(Modifier.height(4.dp)) }
 
             // 1. 首页通知
-            if (inAppNotifications.isNotEmpty()) {
+            if (inAppNotifications.isNotEmpty() == true) {
                 item {
                     StatusBar(
                         notifications = inAppNotifications,
@@ -186,9 +186,6 @@ fun HomeScreen(
     }
 }
 
-/**
- * 核心配置看板：整合助手和引擎选择。
- */
 @Composable
 fun ConfigurationBoard(
     viewModel: MainViewModel,
@@ -231,11 +228,12 @@ fun ConfigurationBoard(
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            Text(
+                            TooltipText(
                                 selectedAssistant?.name ?: "未选择助手",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
+                                color = MaterialTheme.colorScheme.onSurface,
+                                onClick = onOpenAssistantSelection
                             )
                         }
                         Icon(
@@ -273,9 +271,6 @@ fun ConfigurationBoard(
     }
 }
 
-/**
- * 助手选择底栏。
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AssistantSelectionSheet(
@@ -361,11 +356,15 @@ fun AssistantSelectionSheet(
                                 .padding(16.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
+                            TooltipText(
                                 assistant.name,
                                 modifier = Modifier.weight(1f),
                                 style = MaterialTheme.typography.bodyLarge,
-                                fontWeight = FontWeight.Bold
+                                fontWeight = FontWeight.Bold,
+                                onClick = {
+                                    viewModel.setAssistant(assistant.id)
+                                    onDismissRequest()
+                                }
                             )
                             RadioButton(
                                 selected = isSelected,
@@ -449,7 +448,7 @@ fun EngineCardCompact(
             .then(if (!enabled) Modifier.alpha(0.4f) else Modifier),
         shape = RoundedCornerShape(16.dp),
         color = bgColor,
-        border = androidx.compose.foundation.BorderStroke(
+        border = BorderStroke(
             if (isSelected) 2.dp else 1.dp,
             borderColor
         )
@@ -476,7 +475,7 @@ fun EngineCardCompact(
                     color = contentColor
                 )
                 Text(
-                    if (type == EngineType.TEXT_ENGINE) "OCR文字" else "多模态视觉",
+                    if (type == EngineType.TEXT_ENGINE) "无障碍取字" else "多模态视觉",
                     style = MaterialTheme.typography.labelSmall,
                     color = contentColor.copy(alpha = 0.7f)
                 )
@@ -497,7 +496,7 @@ fun EngineCardCompact(
             if (!enabled) {
                 Icon(
                     Icons.Default.Lock,
-                    contentDescription = "屏幕取字模式下不可用",
+                    contentDescription = "无障碍取字模式下不可用",
                     tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
                     modifier = Modifier
                         .align(Alignment.TopEnd)
@@ -519,23 +518,23 @@ fun ActionSection(viewModel: MainViewModel) {
 
     val isRunning = viewModel.isServiceRunning
 
-    // 根据截屏模式或屏幕取字模式判断启动按钮是否可用
-    val isStartEnabled = when {
-        viewModel.permissions.captureMode == CaptureMode.TEXT_ONLY -> isOverlayEnabled && isAccessibilityEnabled
-        captureMode == CaptureMode.SYSTEM -> isOverlayEnabled
-        captureMode == CaptureMode.ACCESSIBILITY -> isOverlayEnabled && isAccessibilityEnabled
-        captureMode == CaptureMode.SHIZUKU -> isOverlayEnabled && isShizukuGranted
+    // 根据截屏模式判断启动按钮是否可用
+    val isStartEnabled = when (captureMode) {
+        CaptureMode.TEXT_ONLY -> isOverlayEnabled && isAccessibilityEnabled
+        CaptureMode.SYSTEM -> isOverlayEnabled
+        CaptureMode.SHIZUKU -> isOverlayEnabled && isShizukuGranted
         else -> isOverlayEnabled
     }
 
-    // 生成按钮禁用原因提示
+    // 服务正在运行时，即使权限被撤销也应允许停止
+    val isClickable = isRunning || isStartEnabled
+
+    // 生成按钮禁用原因提示（服务正在运行时不显示禁用提示）
     val disabledHint: String? = when {
-        isStartEnabled || isRunning -> null
+        isRunning || isStartEnabled -> null
         !isOverlayEnabled -> "请先授予「显示在其他应用上层」权限"
-        viewModel.permissions.captureMode == CaptureMode.TEXT_ONLY -> "屏幕取字模式需要先开启「SolveX 无障碍服务」"
-        captureMode == CaptureMode.ACCESSIBILITY -> "请先在系统设置中开启「SolveX 无障碍服务」"
-        true -> "请先启动 Shizuku 并授权 SolveX"
-        else -> null
+        captureMode == CaptureMode.TEXT_ONLY -> "无障碍取字模式需要先开启「SolveX 无障碍服务」"
+        else -> "请先启动 Shizuku 并授权 SolveX"
     }
 
     var lastClickTime by remember { mutableLongStateOf(0L) }
@@ -559,14 +558,14 @@ fun ActionSection(viewModel: MainViewModel) {
                 .height(60.dp),
             shape = RoundedCornerShape(20.dp),
             color = when {
-                !isStartEnabled -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                !isRunning && !isStartEnabled -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
                 isRunning -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f)
                 else -> MaterialTheme.colorScheme.primaryContainer
             },
-            border = androidx.compose.foundation.BorderStroke(
+            border = BorderStroke(
                 1.dp,
                 when {
-                    !isStartEnabled -> MaterialTheme.colorScheme.outlineVariant
+                    !isRunning && !isStartEnabled -> MaterialTheme.colorScheme.outlineVariant
                     isRunning -> MaterialTheme.colorScheme.error.copy(alpha = 0.2f)
                     else -> MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
                 }
@@ -576,23 +575,21 @@ fun ActionSection(viewModel: MainViewModel) {
                 modifier = Modifier
                     .fillMaxSize()
                     .then(
-                        if (isStartEnabled) {
+                        if (isClickable) {
                             Modifier.combinedClickable(
                                 onClick = {
                                     safeAction {
                                         if (isRunning) {
                                             viewModel.updateShowStopConfirmationDialog(true)
                                         } else {
-                                            viewModel.setMode("study")
-                                            viewModel.startService()
+                                            viewModel.startService(isQuick = false)
                                         }
                                     }
                                 },
                                 onLongClick = {
                                     safeAction {
                                         if (!isRunning) {
-                                            viewModel.setMode("quick")
-                                            viewModel.startService()
+                                            viewModel.startService(isQuick = true)
                                         }
                                     }
                                 }
@@ -606,20 +603,24 @@ fun ActionSection(viewModel: MainViewModel) {
                         if (isRunning) Icons.Default.StopCircle else Icons.Default.RocketLaunch,
                         contentDescription = null,
                         tint = when {
-                            !isStartEnabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
                             isRunning -> MaterialTheme.colorScheme.error
+                            !isStartEnabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
                             else -> MaterialTheme.colorScheme.primary
                         },
                         modifier = Modifier.size(22.dp)
                     )
                     Spacer(Modifier.width(12.dp))
                     Text(
-                        if (isRunning) "停止服务" else "启动服务",
+                        text = if (isRunning) {
+                            if (viewModel.isServiceInRegularMode) "停止常规解析" else "停止自动解析"
+                        } else {
+                            "启用解析"
+                        },
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = when {
-                            !isStartEnabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
                             isRunning -> MaterialTheme.colorScheme.error
+                            !isStartEnabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
                             else -> MaterialTheme.colorScheme.primary
                         }
                     )
@@ -635,13 +636,11 @@ fun ActionSection(viewModel: MainViewModel) {
         ) {
             val statusText = when {
                 isRunning -> {
-                    val modeName =
-                        viewModel.activeModeId?.let { ModeRegistry.get(it).displayName } ?: ""
-                    "${modeName}正在运行中..."
+                    if (viewModel.isServiceInRegularMode) "当前正处于：常规模式 (支持手动裁剪)" else "当前正处于：自动模式 (全屏快速解析)"
                 }
 
                 disabledHint != null -> disabledHint
-                else -> "单击：开启常规学习模式 | 长按：开启自动速查模式"
+                else -> "提示：点击常规解析，长按自动解析快捷方式"
             }
             Text(
                 text = statusText,
@@ -657,9 +656,6 @@ fun ActionSection(viewModel: MainViewModel) {
     }
 }
 
-/**
- * 权限引导卡片：按顺序引导完成必要授权。
- */
 @Composable
 fun PermissionSetupGuideCard(
     viewModel: MainViewModel,
@@ -689,21 +685,19 @@ fun PermissionSetupGuideCard(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .background(
-                                MaterialTheme.colorScheme.primary,
-                                RoundedCornerShape(10.dp)
-                            ),
-                        contentAlignment = Alignment.Center
+                    Surface(
+                        modifier = Modifier.size(36.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.primary
                     ) {
-                        Text(
-                            stepIndex.toString(),
-                            color = MaterialTheme.colorScheme.onPrimary,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(
+                                stepIndex.toString(),
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                     Spacer(Modifier.width(12.dp))
                     Column(modifier = Modifier.weight(1f)) {

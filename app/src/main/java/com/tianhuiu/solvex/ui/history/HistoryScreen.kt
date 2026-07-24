@@ -63,7 +63,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.tianhuiu.solvex.data.models.HistoryItem
-import com.tianhuiu.solvex.mode.ModeRegistry
+import com.tianhuiu.solvex.mode.UniversalMode
 import com.tianhuiu.solvex.ui.components.SolveXConfirmDialog
 import com.tianhuiu.solvex.ui.components.StatusBadge
 import com.tianhuiu.solvex.utils.DateTimeUtils
@@ -282,11 +282,7 @@ fun HistoryScreen(
 }
 
 private fun resolveModeDisplayName(modeId: String): String {
-    return try {
-        ModeRegistry.get(modeId).displayName
-    } catch (_: Exception) {
-        modeId
-    }
+    return if (modeId == UniversalMode.id) UniversalMode.displayName else modeId
 }
 
 /**

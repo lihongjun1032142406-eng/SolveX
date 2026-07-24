@@ -1,6 +1,7 @@
 package com.tianhuiu.solvex.network
 
 import com.tianhuiu.solvex.data.models.ModelProvider
+import com.tianhuiu.solvex.data.models.ToolCallRecord
 import kotlinx.serialization.Serializable
 
 /**
@@ -25,11 +26,23 @@ data class ToolDef(
 )
 
 /**
+ * 大模型对话消息。
+ */
+@Serializable
+data class LlmMessage(
+    val role: String, // system, user, assistant, tool
+    val content: String,
+    val toolCallId: String? = null, // 仅用于 tool 角色
+    val toolName: String? = null, // 仅用于 tool 角色 (兼容部分提供商)
+    val toolCalls: List<ToolCallRecord>? = null // 仅用于 assistant 角色
+)
+
+/**
  * 大模型响应事件流。
  */
 sealed class LlmEvent {
     data class TextDelta(val text: String) : LlmEvent()
-    data class ToolCall(val name: String, val arguments: Map<String, String>) : LlmEvent()
+    data class ToolCall(val id: String, val name: String, val arguments: Map<String, String>) : LlmEvent()
     data object Done : LlmEvent()
     data class Error(val message: String) : LlmEvent()
 }
@@ -40,8 +53,7 @@ sealed class LlmEvent {
 data class StreamRequest(
     val provider: ModelProvider,
     val model: String,
-    val systemPrompt: String,
-    val userPrompt: String,
+    val messages: List<LlmMessage>,
     val imagesBase64: List<String> = emptyList(),
     val tools: List<ToolDef>? = null,
     val firstDeltaTimeoutMillis: Long

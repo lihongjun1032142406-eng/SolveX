@@ -26,8 +26,8 @@ interface ProviderAdapter {
  * 统一 LLM 客户端：根据提供商类型分发推理请求至对应适配器。
  */
 class UnifiedLLMClient(
-    private val client: OkHttpClient,
-    private val json: Json = Json { ignoreUnknownKeys = true },
+    val client: OkHttpClient,
+    val json: Json = Json { ignoreUnknownKeys = true },
 ) {
     private val sseClient = SseStreamClient(client)
 
@@ -48,8 +48,7 @@ class UnifiedLLMClient(
     suspend fun stream(
         provider: ModelProvider,
         model: String,
-        systemPrompt: String,
-        userPrompt: String,
+        messages: List<LlmMessage>,
         imagesBase64: List<String> = emptyList(),
         tools: List<ToolDef>? = null,
         firstDeltaTimeoutMillis: Long = 30000,
@@ -59,8 +58,7 @@ class UnifiedLLMClient(
             StreamRequest(
                 provider = provider,
                 model = model,
-                systemPrompt = systemPrompt,
-                userPrompt = userPrompt,
+                messages = messages,
                 imagesBase64 = imagesBase64,
                 tools = tools,
                 firstDeltaTimeoutMillis = firstDeltaTimeoutMillis

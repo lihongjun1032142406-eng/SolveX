@@ -10,7 +10,10 @@ import androidx.core.app.NotificationCompat
 import com.tianhuiu.solvex.R
 
 /**
- * 通知工具类：负责发送系统通知栏消息及结果解析。
+ * 通知工具类。
+ *
+ * 负责发送解析结果通知及结果文本提取。
+ * 提供结构化题目渲染（JSON → Markdown）和最终答案正则提取功能。
  */
 object NotificationUtils {
     private const val CHANNEL_ID = "solvex_result_channel"
@@ -19,58 +22,44 @@ object NotificationUtils {
     const val ACTION_VIEW_HISTORY = "com.tianhuiu.solvex.VIEW_HISTORY"
     const val EXTRA_HISTORY_ID = "history_id"
 
-    // 预编译正则表达式
     private val finalAnswerPatterns = listOf(
-        Regex("""###\s*【?最终答案】?\s*\n+(.*)""", setOf(RegexOption.DOT_MATCHES_ALL)),
-        Regex("""###\s*最终答案\s*\n+(.*)""", setOf(RegexOption.DOT_MATCHES_ALL)),
+        // 提取以 ### 最终 开头的 Markdown 三级标题段落
+        Regex("""###\s*最终.*?\s*\n+(.*)""", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE)),
+        // 降级匹配 最终答案：xxxx
         Regex("""最终答案[：:]\s*(.*)""", setOf(RegexOption.DOT_MATCHES_ALL))
     )
-    
-    // LaTeX 检测正则表达式
+
     private val latexDetectPattern = Regex(
         """\$|\\\[|\\\(|\\begin\{|\\frac|\\sqrt|\\sum|\\int|\\alpha|\\beta|\\gamma|\\theta|\\pi|\\infty"""
     )
 
-    private val mdHeadingRegex = Regex("""#+\s+""")
-    private val mdBoldRegex = Regex("""(\*\*|__)""")
-    private val mdItalicRegex = Regex("""(\*|_)""")
-    private val mdCodeRegex = Regex("""`""")
-    private val mdQuoteRegex = Regex(""">\s+""")
-    private val mdLinkRegex = Regex("""\[(.*?)\]\((.*?)\)""")
-    private val whitespaceRegex = Regex("""[ \t]+""")
-
     /**
-     * 检测内容是否包含 LaTeX 或 Markdown 公式
+     * 检测内容是否包含 LaTeX 或数学公式标记。
+     *
+     * @param text 待检测文本
+     * @return 是否包含 LaTeX 标记
      */
     fun hasLatex(text: String): Boolean = latexDetectPattern.containsMatchIn(text)
 
     /**
-     * 从完整解析结果中提取最终答案，用于通知内容展示。
-     * 移除所有 Markdown 符号以获得纯文本展示。
+     * 从完整解析结果中提取最终答案文本。
+     *
+     * 按优先级依次匹配预定义的正则模式，匹配失败则降级返回前 100 字符。
+     *
+     * @param fullAnswer AI 返回的完整解析内容
+     * @return 提取到的最终答案文本
      */
     fun extractFinalAnswer(fullAnswer: String): String {
-        var rawExtracted = fullAnswer
         for (pattern in finalAnswerPatterns) {
             val match = pattern.find(fullAnswer)
             if (match != null) {
                 val extracted = match.groupValues[1].trim()
                 if (extracted.isNotBlank()) {
-                    rawExtracted = extracted
-                    break
+                    return extracted
                 }
             }
         }
-
-        // 移除 Markdown 标记
-        return rawExtracted
-            .replace(mdHeadingRegex, "")
-            .replace(mdBoldRegex, "")
-            .replace(mdItalicRegex, "")
-            .replace(mdCodeRegex, "")
-            .replace(mdQuoteRegex, "")
-            .replace(mdLinkRegex, "$1")
-            .replace(whitespaceRegex, " ")
-            .trim()
+        return fullAnswer.take(100) // 降级返回前 100 字
     }
 
     /**

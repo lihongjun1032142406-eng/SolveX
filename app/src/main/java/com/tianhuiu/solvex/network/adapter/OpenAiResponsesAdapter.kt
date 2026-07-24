@@ -42,24 +42,29 @@ class OpenAiResponsesAdapter(
         val body = buildJsonObject {
             put("model", request.model)
             put("stream", true)
-            put("instructions", request.systemPrompt)
+            val systemMsg = request.messages.find { it.role == "system" }
+            if (systemMsg != null) {
+                put("instructions", systemMsg.content)
+            }
             putJsonArray("input") {
-                addJsonObject {
-                    put("role", "user")
-                    put("content", buildJsonArray {
-                        add(buildJsonObject {
-                            put("type", "input_text"); put(
-                            "text",
-                            request.userPrompt
-                        )
-                        })
-                        request.imagesBase64.forEach { img ->
+                request.messages.filter { it.role != "system" }.forEach { msg ->
+                    addJsonObject {
+                        put("role", if (msg.role == "assistant") "assistant" else "user")
+                        put("content", buildJsonArray {
+                            if (msg.role == "user" && request.imagesBase64.isNotEmpty() && msg == request.messages.lastOrNull { it.role == "user" }) {
+                                request.imagesBase64.forEach { img ->
+                                    addJsonObject {
+                                        put("type", "input_image")
+                                        put("image_url", "data:image/jpeg;base64,$img")
+                                    }
+                                }
+                            }
                             add(buildJsonObject {
-                                put("type", "input_image")
-                                put("image_url", "data:image/jpeg;base64,$img")
+                                put("type", "input_text")
+                                put("text", msg.content)
                             })
-                        }
-                    })
+                        })
+                    }
                 }
             }
             request.tools?.let { tools ->

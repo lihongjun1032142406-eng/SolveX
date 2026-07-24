@@ -67,14 +67,9 @@ class UpdateViewModel(application: Application) : AndroidViewModel(application) 
                     }
                 }
             }
-            val lastCheck = repository.lastUpdateCheckFlow.first()
-            val now = System.currentTimeMillis()
-            val isCriticalPending = updateInfo?.updateLevel == UpdateLevel.CRITICAL
-            val intervalMillis = if (isCriticalPending) 0L else TimeUnit.DAYS.toMillis(1)
-
-            if (now - lastCheck >= intervalMillis) {
-                checkForUpdates(manual = false)
-            }
+            
+            // 每次启动都执行静默检查
+            checkForUpdates(manual = false)
         }
     }
 
@@ -101,7 +96,27 @@ class UpdateViewModel(application: Application) : AndroidViewModel(application) 
                     if (info.versionCode > BuildConfig.VERSION_CODE) {
                         updateInfo = info
                         isFreshUpdate = true
-                        isDismissedInSession = false
+                        
+                        // 判断是否需要自动弹出
+                        if (!manual) {
+                            val lastDismissed = repository.lastUpdateDialogDismissedFlow.first()
+                            val sevenDaysMillis = TimeUnit.DAYS.toMillis(7)
+                            val isExpired = (System.currentTimeMillis() - lastDismissed) > sevenDaysMillis
+                            
+                            // 强制更新始终显示，推荐更新仅在超过 7 天或从未关闭过时弹出
+                            if (info.updateLevel == UpdateLevel.CRITICAL || isExpired || lastDismissed == 0L) {
+                                isDismissedInSession = false
+                                showDialogManually = true
+                            } else {
+                                // 冷却期内，不弹窗，仅保持 updateInfo 用于红点显示
+                                isDismissedInSession = true
+                                showDialogManually = false
+                            }
+                        } else {
+                            isDismissedInSession = false
+                            showDialogManually = true
+                        }
+
                         repository.saveConsecutiveNoUpdate(0)
                     } else {
                         updateInfo = null
@@ -173,5 +188,10 @@ class UpdateViewModel(application: Application) : AndroidViewModel(application) 
         showDialogManually = false
         isDismissedInSession = true
         downloadStatus = DownloadStatus.Idle
+        
+        // 记录关闭时间
+        viewModelScope.launch {
+            repository.saveLastUpdateDialogDismissed(System.currentTimeMillis())
+        }
     }
 }

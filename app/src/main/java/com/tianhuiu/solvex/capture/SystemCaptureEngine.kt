@@ -22,7 +22,15 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
- * MediaProjection 录屏接口的引擎实现。
+ * 基于 MediaProjection 的系统录屏截屏引擎。
+ *
+ * 通过 MediaProjection API 创建 VirtualDisplay 和 ImageReader 获取屏幕像素数据，
+ * 自动去除行填充（rowPadding）并以 RGBA_8888 Bitmap 输出。
+ * 在屏幕方向变化时通过 [ProjectionCallback.onCapturedContentResize] 自动重建 VirtualDisplay。
+ *
+ * @property context Android 上下文，用于获取 WindowManager 和 MediaProjectionManager
+ * @property resultCode MediaProjection 授权结果码（来自 onActivityResult）
+ * @property data MediaProjection 授权 Intent 数据（来自 onActivityResult）
  */
 class SystemCaptureEngine(
     private val context: Context,
@@ -116,7 +124,7 @@ class SystemCaptureEngine(
 
         val reader = imageReader ?: return@withContext null
 
-        val image = withTimeoutOrNull(500L) {
+        val image = withTimeoutOrNull(1000L) {
             var img = reader.acquireLatestImage()
             if (img == null) {
                 delay(50)
@@ -130,23 +138,32 @@ class SystemCaptureEngine(
             return@withContext null
         }
 
-        val planes = image.planes
-        val buffer = planes[0].buffer
-        val pixelStride = planes[0].pixelStride
-        val rowStride = planes[0].rowStride
-        val rowPadding = rowStride - pixelStride * image.width
+        try {
+            val planes = image.planes
+            val buffer = planes[0].buffer
+            val pixelStride = planes[0].pixelStride
+            val rowStride = planes[0].rowStride
+            val rowPadding = rowStride - pixelStride * image.width
 
-        val bitmap = createBitmap(image.width + (rowPadding / pixelStride), image.height)
-        bitmap.copyPixelsFromBuffer(buffer)
-        val fw = image.width
-        val fh = image.height
-        image.close()
-
-        if (rowPadding != 0) {
-            val cropped = Bitmap.createBitmap(bitmap, 0, 0, fw, fh)
-            bitmap.recycle()
-            cropped
-        } else bitmap
+            val bitmap = createBitmap(image.width + (rowPadding / pixelStride), image.height)
+            bitmap.copyPixelsFromBuffer(buffer)
+            
+            val fw = image.width
+            val fh = image.height
+            
+            if (rowPadding != 0) {
+                val cropped = Bitmap.createBitmap(bitmap, 0, 0, fw, fh)
+                bitmap.recycle()
+                cropped
+            } else {
+                bitmap
+            }
+        } catch (e: Exception) {
+            Log.e("SystemCapture", "Error during capture", e)
+            null
+        } finally {
+            image.close()
+        }
     }
 
     override fun release() {

@@ -4,9 +4,6 @@ import android.app.Application
 import com.tianhuiu.solvex.ui.MainViewModel
 import org.lsposed.hiddenapibypass.HiddenApiBypass
 
-/**
- * 全局 Application 类
- */
 class SolveXApplication : Application() {
     internal lateinit var container: AppContainer
         private set

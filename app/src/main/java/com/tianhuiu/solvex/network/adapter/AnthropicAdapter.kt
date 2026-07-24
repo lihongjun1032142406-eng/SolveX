@@ -38,31 +38,34 @@ class AnthropicAdapter(
             put("model", request.model)
             put("stream", true)
             put("max_tokens", 4096)
-            if (request.systemPrompt.isNotBlank()) {
-                put("system", request.systemPrompt)
+            val systemMsg = request.messages.find { it.role == "system" }
+            if (systemMsg != null) {
+                put("system", systemMsg.content)
             }
             put("messages", buildJsonArray {
-                add(buildJsonObject {
-                    put("role", "user")
-                    put("content", buildJsonArray {
-                        request.imagesBase64.forEach { img ->
+                request.messages.filter { it.role != "system" }.forEach { msg ->
+                    add(buildJsonObject {
+                        put("role", if (msg.role == "assistant") "assistant" else "user")
+                        put("content", buildJsonArray {
+                            if (msg.role == "user" && request.imagesBase64.isNotEmpty() && msg == request.messages.lastOrNull { it.role == "user" }) {
+                                request.imagesBase64.forEach { img ->
+                                    add(buildJsonObject {
+                                        put("type", "image")
+                                        put("source", buildJsonObject {
+                                            put("type", "base64")
+                                            put("media_type", "image/jpeg")
+                                            put("data", img)
+                                        })
+                                    })
+                                }
+                            }
                             add(buildJsonObject {
-                                put("type", "image")
-                                put("source", buildJsonObject {
-                                    put("type", "base64")
-                                    put("media_type", "image/jpeg")
-                                    put("data", img)
-                                })
+                                put("type", "text")
+                                put("text", msg.content)
                             })
-                        }
-                        add(buildJsonObject {
-                            put("type", "text"); put(
-                            "text",
-                            request.userPrompt
-                        )
                         })
                     })
-                })
+                }
             })
             request.tools?.let { tools ->
                 put("tools", ToolRegistry.formatForProvider(tools, ProviderKind.ANTHROPIC))

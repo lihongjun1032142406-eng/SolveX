@@ -43,5 +43,6 @@ data class ProcessingResult(
     val screenshotPath: String? = null,
     val screenshotPaths: List<String> = emptyList(),
     val events: List<ProcessingEvent> = emptyList(),
-    val createdAtMillis: Long = System.currentTimeMillis()
+    val createdAtMillis: Long = System.currentTimeMillis(),
+    val toolCalls: List<ToolCallRecord> = emptyList(),
 )

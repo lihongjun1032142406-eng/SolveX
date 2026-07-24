@@ -30,8 +30,10 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Restore
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.WarningAmber
@@ -67,10 +69,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.tianhuiu.solvex.data.models.AssistantConfig
 import com.tianhuiu.solvex.data.models.ModelProvider
+import com.tianhuiu.solvex.data.models.SearchProviderConfig
 import com.tianhuiu.solvex.ui.ExportData
 import com.tianhuiu.solvex.ui.MainViewModel
 import com.tianhuiu.solvex.ui.components.SolveXConfirmDialog
 import com.tianhuiu.solvex.ui.components.SolveXDialog
+import com.tianhuiu.solvex.ui.components.TooltipText
 import com.tianhuiu.solvex.utils.SystemUtils
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -88,23 +92,31 @@ fun ImportExportSettingsScreen(
     var showImportDialog by remember { mutableStateOf(false) }
     var pendingImportData by remember { mutableStateOf<ExportData?>(null) }
 
-    // 选择状态
+    // 选择状态 (使用 SnapshotStateMap 确保响应式更新)
     val selectedProviders = remember { mutableStateMapOf<String, Boolean>() }
     val includeApiKeyMap = remember { mutableStateMapOf<String, Boolean>() }
     val selectedAssistants = remember { mutableStateMapOf<String, Boolean>() }
+    val selectedSearchProviders = remember { mutableStateMapOf<String, Boolean>() }
+    val includeSearchApiKeyMap = remember { mutableStateMapOf<String, Boolean>() }
+    var includeSystemConfig by remember { mutableStateOf(true) }
 
     var showProviderSheet by remember { mutableStateOf(false) }
     var showAssistantSheet by remember { mutableStateOf(false) }
+    var showSearchSheet by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState()
 
     // 初始化选择状态
-    LaunchedEffect(viewModel.providers, viewModel.assistants) {
+    LaunchedEffect(viewModel.providers, viewModel.assistants, viewModel.webSearchSettings.providers) {
         viewModel.providers.forEach {
             if (it.id !in selectedProviders) selectedProviders[it.id] = true
             if (it.id !in includeApiKeyMap) includeApiKeyMap[it.id] = true
         }
         viewModel.assistants.forEach {
             if (it.id !in selectedAssistants) selectedAssistants[it.id] = true
+        }
+        viewModel.webSearchSettings.providers.forEach {
+            if (it.id !in selectedSearchProviders) selectedSearchProviders[it.id] = true
+            if (it.id !in includeSearchApiKeyMap) includeSearchApiKeyMap[it.id] = true
         }
     }
 
@@ -243,18 +255,51 @@ fun ImportExportSettingsScreen(
                         onClick = { showAssistantSheet = true }
                     )
 
+                    Spacer(Modifier.height(12.dp))
+
+                    // 选择搜索引擎入口
+                    val searchCount = viewModel.webSearchSettings.providers.filter { selectedSearchProviders[it.id] == true }.size
+                    SelectionEntryCard(
+                        title = "选择搜索引擎",
+                        subtitle = "已选择 $searchCount 个项目",
+                        icon = Icons.Default.Language,
+                        onClick = { showSearchSheet = true }
+                    )
+
+                    Spacer(Modifier.height(12.dp))
+
+                    // 系统与外观开关
+                    SelectionToggleCard(
+                        title = "系统与外观配置",
+                        subtitle = "包含悬浮球样式、权限偏好等",
+                        icon = Icons.Default.Settings,
+                        checked = includeSystemConfig,
+                        onCheckedChange = { includeSystemConfig = it }
+                    )
+
                     Spacer(Modifier.height(16.dp))
 
                     Button(
                         onClick = {
                             val providers = viewModel.providers.filter { selectedProviders[it.id] == true }
                             val assistants = viewModel.assistants.filter { selectedAssistants[it.id] == true }
-                            exportContent = viewModel.exportConfig(providers, assistants, includeApiKeyMap)
+                            val searchProviders = viewModel.webSearchSettings.providers.filter { selectedSearchProviders[it.id] == true }
+                            exportContent = viewModel.exportConfig(
+                                sp = providers, 
+                                sa = assistants, 
+                                m = includeApiKeyMap,
+                                ss = searchProviders,
+                                sm = includeSearchApiKeyMap,
+                                includePermissions = includeSystemConfig
+                            )
                             createDocumentLauncher.launch("SolveX_Export_${System.currentTimeMillis()}.json")
                         },
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(12.dp),
-                        enabled = selectedProviders.values.any { it } || selectedAssistants.values.any { it }
+                        enabled = selectedProviders.values.any { it } || 
+                                selectedAssistants.values.any { it } || 
+                                selectedSearchProviders.values.any { it } || 
+                                includeSystemConfig
                     ) {
                         Icon(Icons.Default.Download, null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
@@ -312,8 +357,17 @@ fun ImportExportSettingsScreen(
             onDismissRequest = { showProviderSheet = false },
             itemContent = { provider ->
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(provider.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
-                    Text(provider.type.displayName, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    TooltipText(
+                        provider.name,
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Bold,
+                        onClick = { selectedProviders[provider.id] = !(selectedProviders[provider.id] ?: false) }
+                    )
+                    Text(
+                        provider.type.displayName,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("密钥", style = MaterialTheme.typography.labelSmall)
@@ -335,12 +389,46 @@ fun ImportExportSettingsScreen(
             sheetState = sheetState,
             onDismissRequest = { showAssistantSheet = false },
             itemContent = { assistant ->
-                Text(
+                TooltipText(
                     assistant.name,
                     modifier = Modifier.weight(1f),
                     style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    onClick = { selectedAssistants[assistant.id] = !(selectedAssistants[assistant.id] ?: false) }
                 )
+            }
+        )
+    }
+
+    if (showSearchSheet) {
+        MultiSelectionSheet(
+            title = "选择搜索引擎",
+            items = viewModel.webSearchSettings.providers,
+            selectedMap = selectedSearchProviders,
+            sheetState = sheetState,
+            onDismissRequest = { showSearchSheet = false },
+            itemContent = { provider ->
+                Column(modifier = Modifier.weight(1f)) {
+                    TooltipText(
+                        provider.name,
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Bold,
+                        onClick = { selectedSearchProviders[provider.id] = !(selectedSearchProviders[provider.id] ?: false) }
+                    )
+                    Text(
+                        provider.kind.displayName,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("密钥", style = MaterialTheme.typography.labelSmall)
+                    Checkbox(
+                        checked = includeSearchApiKeyMap[provider.id] ?: false,
+                        onCheckedChange = { includeSearchApiKeyMap[provider.id] = it },
+                        enabled = selectedSearchProviders[provider.id] ?: false
+                    )
+                }
             }
         )
     }
@@ -405,6 +493,12 @@ fun ImportExportSettingsScreen(
                 HorizontalDivider()
                 ImportDetailRow(Icons.Default.Cloud, "模型提供方", "${data.providers.size} 个")
                 ImportDetailRow(Icons.Default.Psychology, "助手配置", "${data.assistants.size} 个")
+                if (data.webSearch != null) {
+                    ImportDetailRow(Icons.Default.Language, "联网配置", "包含")
+                }
+                if (data.permissions != null) {
+                    ImportDetailRow(Icons.Default.Settings, "系统与外观", "包含")
+                }
                 HorizontalDivider()
                 Surface(
                     shape = MaterialTheme.shapes.medium,
@@ -442,11 +536,12 @@ fun <T> MultiSelectionSheet(
     sheetState: SheetState,
     onDismissRequest: () -> Unit,
     itemContent: @Composable RowScope.(T) -> Unit,
-    idSelector: (T) -> String = { (it as? ModelProvider)?.id ?: (it as? AssistantConfig)?.id ?: "" }
+    idSelector: (T) -> String = { (it as? ModelProvider)?.id ?: (it as? AssistantConfig)?.id ?: (it as? SearchProviderConfig)?.id ?: "" }
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismissRequest,
         sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surface,
         dragHandle = {
             Column(
                 modifier = Modifier.padding(vertical = 12.dp),
@@ -505,6 +600,41 @@ fun <T> MultiSelectionSheet(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun SelectionToggleCard(
+    title: String,
+    subtitle: String,
+    icon: ImageVector,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Surface(
+        onClick = { onCheckedChange(!checked) },
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier.size(40.dp).background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f), RoundedCornerShape(10.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+            }
+            Spacer(Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
+                Text(subtitle, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+            }
+            Checkbox(checked = checked, onCheckedChange = onCheckedChange)
         }
     }
 }

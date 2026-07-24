@@ -1,15 +1,11 @@
 package com.tianhuiu.solvex.mode
 
-// 模式注册中心
+/**
+ * 模式注册中心。
+ * 全局已统一采用通用模式，通过设置项灵活切换解析行为。
+ */
 object ModeRegistry {
-    private val modes = mapOf(
-        StudyMode.id to StudyMode,
-        QuickMode.id to QuickMode,
-    )
+    fun getUniversal(): Mode = UniversalMode
 
-    val all: List<Mode> get() = modes.values.toList()
-
-    fun get(id: String): Mode = modes[id] ?: error("未知模式: $id")
-
-    fun defaultId(): String = StudyMode.id
+    val all: List<Mode> get() = listOf(UniversalMode)
 }

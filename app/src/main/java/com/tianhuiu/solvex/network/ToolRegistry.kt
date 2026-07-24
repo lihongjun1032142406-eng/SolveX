@@ -42,7 +42,7 @@ internal object ToolRegistry {
                         put("required", buildJsonArray {
                             for (p in tool.params) add(JsonPrimitive(p.name))
                         })
-                        put("additionalProperties", value = false)
+                        put("additionalProperties", false)
                     })
                 })
             })
@@ -69,7 +69,6 @@ internal object ToolRegistry {
                     put("required", buildJsonArray {
                         for (p in tool.params) add(JsonPrimitive(p.name))
                     })
-                    put("additionalProperties", false)
                 })
             })
         }

@@ -34,7 +34,6 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.tianhuiu.solvex.data.models.UpdateLevel
-import com.tianhuiu.solvex.mode.ModeRegistry
 import com.tianhuiu.solvex.ui.components.SolveXConfirmDialog
 import com.tianhuiu.solvex.ui.components.UpdateDialog
 import com.tianhuiu.solvex.ui.history.HistoryDetailScreen
@@ -43,6 +42,7 @@ import com.tianhuiu.solvex.ui.home.HomeScreen
 import com.tianhuiu.solvex.ui.settings.AboutScreen
 import com.tianhuiu.solvex.ui.settings.AssistantEditScreen
 import com.tianhuiu.solvex.ui.settings.AssistantSettingsScreen
+import com.tianhuiu.solvex.ui.settings.FloatingBallAppearanceScreen
 import com.tianhuiu.solvex.ui.settings.GeneralSettingsScreen
 import com.tianhuiu.solvex.ui.settings.ImportExportSettingsScreen
 import com.tianhuiu.solvex.ui.settings.ModeSettingsScreen
@@ -51,6 +51,7 @@ import com.tianhuiu.solvex.ui.settings.PermissionSettingsScreen
 import com.tianhuiu.solvex.ui.settings.ProviderEditScreen
 import com.tianhuiu.solvex.ui.settings.SettingsScreen
 import com.tianhuiu.solvex.ui.settings.TutorialScreen
+import com.tianhuiu.solvex.ui.settings.WebSearchSettingsScreen
 
 /**
  * 屏幕导航定义。
@@ -125,13 +126,11 @@ fun SolveXApp(viewModel: MainViewModel, updateViewModel: UpdateViewModel) {
                                 val updateBadge = updateViewModel.updateInfo != null
                                 val permissionBadge = !viewModel.isAllPermissionsReady
                                 val providerBadge = viewModel.providers.all { it.apiKey.isBlank() }
-                                val modeBadge = ModeRegistry.all.any { mode ->
-                                    val config = viewModel.allModeConfigs[mode.id] ?: mode.defaultConfig()
-                                    config.ocrProviderId.isNullOrBlank() && 
-                                    config.textProviderId.isNullOrBlank() && 
-                                    config.visionProviderId.isNullOrBlank() &&
-                                    viewModel.defaultProviderId.isNullOrBlank()
-                                }
+                                val modeConfig = viewModel.currentModeConfig
+                                val modeBadge = modeConfig.ocrProviderId.isNullOrBlank() && 
+                                               modeConfig.textProviderId.isNullOrBlank() && 
+                                               modeConfig.visionProviderId.isNullOrBlank() &&
+                                               viewModel.defaultProviderId.isNullOrBlank()
                                 updateBadge || permissionBadge || providerBadge || modeBadge
                             }
 
@@ -245,13 +244,14 @@ fun SolveXApp(viewModel: MainViewModel, updateViewModel: UpdateViewModel) {
                         onBack = { navController.popBackStack() }
                     )
                 }
-                composable(
-                    route = "settings/mode/{modeId}",
-                    arguments = listOf(navArgument("modeId") { type = NavType.StringType })
-                ) { backStackEntry ->
-                    val modeId = backStackEntry.arguments?.getString("modeId") ?: ""
+                composable("settings/appearance") {
+                    FloatingBallAppearanceScreen(
+                        viewModel = viewModel,
+                        onBack = { navController.popBackStack() }
+                    )
+                }
+                composable("settings/mode") {
                     ModeSettingsScreen(
-                        modeId = modeId,
                         viewModel = viewModel,
                         onBack = { navController.popBackStack() }
                     )
@@ -329,6 +329,12 @@ fun SolveXApp(viewModel: MainViewModel, updateViewModel: UpdateViewModel) {
                 }
                 composable("settings/tutorial") {
                     TutorialScreen(
+                        onBack = { navController.popBackStack() }
+                    )
+                }
+                composable("settings/web_search") {
+                    WebSearchSettingsScreen(
+                        viewModel = viewModel,
                         onBack = { navController.popBackStack() }
                     )
                 }

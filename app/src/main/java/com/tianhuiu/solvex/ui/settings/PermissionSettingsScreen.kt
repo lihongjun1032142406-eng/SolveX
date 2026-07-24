@@ -153,7 +153,7 @@ fun PermissionSettingsScreen(
                     )
                     SettingsItem(
                         label = "无障碍服务",
-                        subLabel = if (isAccessibilityEnabled) "已具备屏幕取色与自动化操作能力" else "开启后可支持无障碍截屏及屏幕取词",
+                        subLabel = if (isAccessibilityEnabled) "已具备屏幕取色与自动化操作能力" else "开启后可支持无障碍取字功能",
                         icon = Icons.Default.Accessibility,
                         trailing = {
                             Button(
