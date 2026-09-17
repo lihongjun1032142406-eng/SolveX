@@ -1,14 +1,6 @@
 pluginManagement {
     repositories {
-        maven{url=uri("https://maven.aliyun.com/repository/google")}
-        maven{url=uri("https://maven.aliyun.com/repository/central")}
-        google {
-            content {
-                includeGroupByRegex("com\\.android.*")
-                includeGroupByRegex("com\\.google.*")
-                includeGroupByRegex("androidx.*")
-            }
-        }
+        google()
         mavenCentral()
         gradlePluginPortal()
     }
@@ -27,4 +19,3 @@ dependencyResolutionManagement {
 
 rootProject.name = "SolveX"
 include(":app")
- 
